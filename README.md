@@ -11,7 +11,7 @@ LocSec and the Eggdrop scripts are unrelated pieces of software. They are docume
 
 # LocSec — Local Host Security Daemon
 
-**Version 5.0-1** · Package: `locsecd` · License: GPL-3.0-or-later
+**Version 5.0-1** · Package: `locsecd` · 
 
 > **Release status: production release (5.0-1).** Reported by the tester: about three weeks of continuous use through every scan and upgrade on Debian 13 (GNOME and KDE Plasma) and Linux Mint 22 (Cinnamon), with logs correct and `locsec-vm-check.sh` passing. 5.0-1 is the 4.0.11-103 code with a new version number. **Ubuntu (24.04, 26.04, 26.10), Debian 12 and LMDE are expected to work but have not been run yet**; Mint 22 is built on Ubuntu 24.04, so most of the path is shared. Still true: releases are unsigned (check SHA256SUMS), no third-party security review is recorded here, and the AppArmor profiles are not loaded.
 >
