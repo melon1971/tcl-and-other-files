@@ -1,5 +1,7 @@
 This README documents five groups of independent components:
 
+**I wont be updating the readme with each new fix,build or feature added, however, any new builds will be uploaded here.**
+
 1. **[LocSec](#locsec--local-host-security-daemon)**: a Linux host security daemon and dashboard (package `locsecd`, v5.0-12).
 2. **[masterhelp.tcl](#masterhelptcl--eggdrop-help-menu-script)**: an Eggdrop IRC bot script that provides the `!bhelp` help menu.
 3. **[The Eggdrop scripts it indexes](#eggdrop-scripts-indexed-by-masterhelptcl)**: the OS reference, game, IRC-tool, and utility scripts that `!bhelp` points users to.
