@@ -1,4 +1,0 @@
-f27b4fc01c86660d1b1f1b79235f70945c5bb60c5fca5deda630a4bb273ee57d  locsecd_5.0-16_amd64.deb
-99c3ea0ea287f234785ee9b7a5cec3fd255d47012431626766edf0d67246b7f6  locsecd-5.0-16-source.tar.gz
-bfdabbdd9753197a04c887569a9228603a1190930280dbb6ecc02fca38981f4d  locsec-vm-check.sh
-5f97978b4b65e07bcb04355e4bd0672938673c2d39a2203e7dff4d4fd03ccf6c  LocSec-Installation-Guide-5_0-16.docx
