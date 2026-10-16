@@ -1,2 +1,0 @@
-74cb48800cc7dac6e225eaae77c48897903486f4e9ed63f874841fbb835fa4f2  locsecd_5.0-17_amd64.deb
-df8a38c780a2be079977b17f9ded94d1e80e2196d1fdfec87f72db52ba0d2352  locsecd-5.0-17-source.tar.gz
