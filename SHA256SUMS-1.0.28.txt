@@ -1,3 +1,0 @@
-fd739bf366282f10f731850a23a0c30a84486e5a4993e1d0b9166ce5be36766c  liveworld-rpg_1.0.28_all.deb
-3da58d451bcb7d36e63584ca9b9aa1a02c6d9b656ecc033008efc3daad6064ad  liveworld-rpg-1.0.28-source.tar.gz
-2a538431b3972ef799c8530732cfce51bd8117b8340f934462d9e54e3cdca868  LiveWorld-RPG-Guide.docx
