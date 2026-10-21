@@ -1,3 +1,0 @@
-8bfbbbf9ed7a9342c2f2d84747fbe99afc87c7a21741f94ad100d58fbf51dee2  scanistry_5.0-23_amd64.deb
-d42de18d6d65de7b38c66b1efb32e7955637cb8e420309c715071bb2d3d5bf6f  scanistry-5.0-23-source.tar.gz
-b5d02f1d5a81f823ed617112432fe09a271039d5cf9fc9261709154aad97307f  scanistry-vm-check.sh
