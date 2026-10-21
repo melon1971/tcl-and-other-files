@@ -12,7 +12,6 @@ This repository collects the current release files, source archives, helper scri
 - [SHA256SUMS-5.0-23.txt](SHA256SUMS-5.0-23.txt) — checksums for the release files
 - [Scanistry-Installation-Guide-5_0-23.docx](Scanistry-Installation-Guide-5_0-23.docx) — installation guide
 - [Scanistry-Ignores-and-Blocks.docx](Scanistry-Ignores-and-Blocks.docx) — notes on ignore rules and block handling
-- [AI_Network_Defense_Guide.docx](AI_Network_Defense_Guide.docx) — network defense notes
 - [ClamAV-upgrade-trixie.docx](ClamAV-upgrade-trixie.docx) — ClamAV upgrade guidance
 
 ### LiveWorld RPG
@@ -105,6 +104,27 @@ The Eggdrop scripts in this repository are intended for Debian 13 and related De
 
 Typical requirements include the packages needed for Tcl, IRC, networking, and script support. See the project files in this repo for the relevant package lists and notes.
 
+Typical package set for Eggdrop and the Tcl scripts in this repository:
+
+```bash
+sudo apt update
+sudo apt install -y \
+  eggdrop \
+  tcl8.6 \
+  tcl-tls \
+  tcllib \
+  libsqlite3-tcl \
+  ca-certificates \
+  coreutils \
+  openssl \
+  curl \
+  build-essential \
+  libssl-dev \
+  zlib1g-dev
+```
+
+For scripts that use HTTPS or JSON-like helpers, `tcl-tls`, `tcllib`, `ca-certificates`, and `curl` are especially useful. `libsqlite3-tcl` is needed for database-backed scripts such as `mafia.tcl`.
+
 ---
 
 # LiveWorld RPG — Offline Fantasy RPG
@@ -127,7 +147,6 @@ The game is distributed here as a ready-to-install Debian package and as a sourc
 - [README.md](README.md) — repository index and overview
 - [SHA256SUMS-5.0-23.txt](SHA256SUMS-5.0-23.txt) — current file integrity hashes for the Scanistry release
 - [Scanistry-Installation-Guide-5_0-23.docx](Scanistry-Installation-Guide-5_0-23.docx) — setup and migration notes
-- [AI_Network_Defense_Guide.docx](AI_Network_Defense_Guide.docx) — local defensive guidance
 - [ClamAV-upgrade-trixie.docx](ClamAV-upgrade-trixie.docx) — Debian 13 ClamAV notes
 - [Scanistry-Ignores-and-Blocks.docx](Scanistry-Ignores-and-Blocks.docx) — ignore/block behavior explanations
 
