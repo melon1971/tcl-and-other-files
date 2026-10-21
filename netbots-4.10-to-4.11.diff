@@ -1,0 +1,4590 @@
+diff -ruN netbots4.10/aidle.tcl netbots4.11/aidle.tcl
+--- netbots4.10/aidle.tcl	2026-10-21 15:31:16.254001385 +0000
++++ netbots4.11/aidle.tcl	2026-10-21 15:31:16.250939960 +0000
+@@ -1,48 +1,61 @@
+-# netbots.tcl v4.10 (8 August 2005)
++# netbots.tcl v4.11 (security & bugfix release, based on v4.10 by slennox)
+ # Copyright 1998-2005 by slennox
+ # http://www.egghelp.org/
+ 
+ ## aidle.tcl component script ##
+ 
+ proc ai_sendmsg {} {
+-  global ai_chans ai_msgbots ai_msgs ai_time ai_uidle botnick
++  global ai_chans ai_msgbots ai_msgs botnick
+   if {$ai_chans == ""} {
+-    set chan [lindex [channels] [rand [llength [channels]]]]
++    set chans [channels]
+   } else {
+-    set chan [lindex $ai_chans [rand [llength $ai_chans]]]
++    set chans $ai_chans
+   }
+-  if {$ai_msgbots} {
++  if {[llength $chans] && [llength $ai_msgs]} {
++    set chan [lindex $chans [rand [llength $chans]]]
++    set msg [lindex $ai_msgs [rand [llength $ai_msgs]]]
+     if {[validchan $chan] && [botonchan $chan]} {
+-      set botlist ""
+-      foreach bot [chanlist $chan b] {
+-        if {$bot == $botnick || [onchansplit $bot $chan]} {continue}
+-        lappend botlist $bot
+-      }
+-      if {$botlist != ""} {
+-        puthelp "PRIVMSG [lindex $botlist [rand [llength $botlist]]] :[lindex $ai_msgs [rand [llength $ai_msgs]]]"
++      if {$ai_msgbots} {
++        set botlist ""
++        foreach bot [chanlist $chan b] {
++          if {[string equal -nocase $bot $botnick] || [onchansplit $bot $chan]} {continue}
++          lappend botlist $bot
++        }
++        if {$botlist != ""} {
++          puthelp "PRIVMSG [lindex $botlist [rand [llength $botlist]]] :$msg"
++        }
++      } else {
++        puthelp "PRIVMSG $chan :$msg"
+       }
+     }
+-  } else {
+-    puthelp "PRIVMSG $chan :[lindex $ai_msgs [rand [llength $ai_msgs]]]"
+   }
++  ai_schedule
++  return 0
++}
++
++# Exactly one pending ai_sendmsg (timer or utimer, depending on ai_uidle).
++# Previously toggling ai_uidle with a rehash left both kinds running.
++proc ai_schedule {} {
++  global ai_time ai_uidle
+   if {$ai_uidle} {
+-    utimer [expr 140 + [rand 40]] ai_sendmsg
++    nb_killtimer ai_sendmsg
++    if {![string match *ai_sendmsg* [utimers]]} {
++      utimer [expr {140 + [rand 40]}] ai_sendmsg
++    }
+   } else {
+-    timer [expr [rand $ai_time] + 1] ai_sendmsg
++    nb_killutimer ai_sendmsg
++    if {![string match *ai_sendmsg* [timers]]} {
++      if {![string is integer -strict $ai_time] || $ai_time < 1} {
++        set ai_time 1
++      }
++      timer [expr {[rand $ai_time] + 1}] ai_sendmsg
++    }
+   }
+-  return 0
++  return
+ }
+ 
+-set ai_chans [split $ai_chans]
++set ai_chans [split [string trim $ai_chans]]
+ 
+-if {$ai_uidle} {
+-  if {![string match *ai_sendmsg* [utimers]]} {
+-    utimer [expr 140 + [rand 40]] ai_sendmsg
+-  }
+-} else {
+-  if {![string match *ai_sendmsg* [timers]]} {
+-    timer [expr [rand $ai_time] + 1] ai_sendmsg
+-  }
+-}
++ai_schedule
+ 
+-return "nb_info 4.10.0"
++return "nb_info 4.11.0"
+diff -ruN netbots4.10/botnetop.tcl netbots4.11/botnetop.tcl
+--- netbots4.10/botnetop.tcl	2026-10-21 15:31:16.254461330 +0000
++++ netbots4.11/botnetop.tcl	2026-10-21 15:31:16.250250744 +0000
+@@ -1,12 +1,12 @@
+-# netbots.tcl v4.10 (8 August 2005)
++# netbots.tcl v4.11 (security & bugfix release, based on v4.10 by slennox)
+ # Copyright 1998-2005 by slennox
+ # http://www.egghelp.org/
+ 
+ ## botnetop.tcl component script ##
+ 
+ proc bop_jointmr {nick uhost hand chan} {
+-  global bop_asktmr bop_delay botnick numversion
+-  if {$nick != $botnick} {
++  global bop_asktmr bop_delay botnick
++  if {![string equal -nocase $nick $botnick]} {
+     if {![matchattr $hand b] || ![matchattr $hand o|o $chan] || [matchattr $hand d|d $chan]} {return 0}
+     set stlchan [string tolower $chan]
+     if {[info exists bop_asktmr($hand:$stlchan)]} {return 0}
+@@ -33,7 +33,7 @@
+ 
+ proc bop_linkreq {} {
+   foreach chan [channels] {
+-    if {![botisop $chan]} {
++    if {[botonchan $chan] && ![botisop $chan]} {
+       bop_reqop $chan op
+     }
+   }
+@@ -42,6 +42,7 @@
+ 
+ proc bop_reqop {chan need} {
+   global bop_needi
++  if {![validchan $chan]} {return 0}
+   if {![info exists bop_needi([string tolower $chan])]} {
+     bop_setneed $chan
+   }
+@@ -59,7 +60,7 @@
+ 
+ proc bop_modeop {nick uhost hand chan mode opped} {
+   global botnick
+-  if {$mode == "+o" && ![botisop $chan] && $nick != $botnick && $opped != $botnick && [matchattr [set obot [nick2hand $opped $chan]] b] && [matchattr $obot o|o $chan] && [islinked $obot]} {
++  if {$mode == "+o" && ![botisop $chan] && ![string equal -nocase $nick $botnick] && ![string equal -nocase $opped $botnick] && [matchattr [set obot [nick2hand $opped $chan]] b] && [matchattr $obot o|o $chan] && [islinked $obot]} {
+     putbot $obot "reqops $chan"
+   }
+   return
+@@ -96,8 +97,12 @@
+ proc bop_doiwantops {frombot cmd arg} {
+   global bop_log bop_maxreq bop_opreqs botname botnick
+   set chan [lindex [split $arg] 0] ; set fromnick [lindex [split $arg] 1]
+-  if {![validchan $chan] || ![botonchan $chan] || [botisop $chan]} {return 0}
++  if {![validchan $chan] || ![nb_isnick $fromnick] || ![botonchan $chan] || [botisop $chan]} {return 0}
++  if {![matchattr $frombot b] || ![matchattr $frombot o|o $chan]} {return 0}
+   set stlchan [string tolower $chan]
++  if {![info exists bop_opreqs($stlchan)]} {
++    bop_setneed $chan
++  }
+   if {$bop_maxreq && $bop_opreqs($stlchan) >= $bop_maxreq} {return 0}
+   if {![onchan $fromnick $chan] || [onchansplit $fromnick $chan] || ![isop $fromnick $chan]} {return 0}
+   if {![matchattr [nick2hand $fromnick $chan] o|o $chan]} {return 0}
+@@ -115,15 +120,18 @@
+ }
+ 
+ proc bop_botwantsops {frombot cmd arg} {
+-  global bop_addhost bop_hcheck bop_log bop_osync numversion strict-host
++  global bop_addhost bop_hcheck bop_log bop_osync strict-host
+   set chan [lindex [split $arg] 0] ; set fromnick [lindex [split $arg] 1] ; set fromhost [lindex [split $arg] 2]
+-  if {![botonchan $chan] || ![botisop $chan]} {return 0}
++  if {![validchan $chan] || ![nb_isnick $fromnick] || ![botonchan $chan] || ![botisop $chan]} {return 0}
+   if {![onchan $fromnick $chan] || [onchansplit $fromnick $chan]} {return 0}
+   if {![matchattr $frombot b] || ![matchattr $frombot o|o $chan] || [matchattr $frombot d|d $chan]} {return 0}
+   if {$bop_hcheck && $fromhost != "" && $fromhost != [string trimleft [getchanhost $fromnick $chan] "~+-^="]} {return 0}
+-  if {![matchattr [nick2hand $fromnick $chan] o|o $chan]} {
+-    if {$fromhost == "" || !$bop_addhost} {return 0}
+-    if {${strict-host} == 0} {
++  set fromhand [nick2hand $fromnick $chan]
++  if {![matchattr $fromhand o|o $chan]} {
++    # only learn a new host for an unknown nick - never steal a host that
++    # already identifies a different user
++    if {$fromhost == "" || !$bop_addhost || ($fromhand != "*" && $fromhand != "")} {return 0}
++    if {[info exists strict-host] && ${strict-host} == 0} {
+       set host *![string trimleft [getchanhost $fromnick $chan] "~+-^="]
+     } else {
+       set host *![getchanhost $fromnick $chan]
+@@ -132,15 +140,10 @@
+     putlog "botnetop: added host $host to $frombot"
+   }
+   if {$bop_osync} {
+-    if {$numversion < 1040000} {
+-      pushmode $chan +o $fromnick
+-    } else {
+-      putquick "MODE $chan +o $fromnick"
+-    }
++    putquick "MODE $chan +o $fromnick"
+   } else {
+     if {[isop $fromnick $chan]} {return 0}
+-	#utimer [rand 10] [list bop_doTheOp $fromnick $chan]
+-	pushmode $chan +o $fromnick
++    pushmode $chan +o $fromnick
+   }
+   if {$bop_log >= 2} {
+     if {$fromnick != $frombot} {
+@@ -152,15 +155,13 @@
+   return 0
+ }
+ 
+-# Added proc, 28.11.19
+-proc bop_doTheOp {fromnick chan} {
+-	pushmode $chan +o $fromnick
+-}
+-
+ proc bop_letmein {chan need} {
+   global botname botnick bop_log bop_needk bop_needi bop_needl bop_needu
+-  if {[bots] == "" || [botonchan $chan]} {return 0}
++  if {[bots] == "" || ![validchan $chan] || [botonchan $chan]} {return 0}
+   set stlchan [string tolower $chan]
++  if {![info exists bop_needk($stlchan)]} {
++    bop_setneed $chan
++  }
+   switch -exact -- $need {
+     "key" {
+       if {$bop_needk($stlchan)} {return 0}
+@@ -233,9 +234,10 @@
+ proc bop_botwantsin {frombot cmd arg} {
+   global bop_didlimit bop_icheck bop_log bop_who
+   set chan [lindex [split $arg] 0]
+-  if {![validchan $chan]} {return 0}
++  if {![validchan $chan] || ![botonchan $chan]} {return 0}
+   if {![matchattr $frombot b] || ![matchattr $frombot fo|fo $chan]} {return 0}
+-  set fromhost [lindex [split $arg] 2]
++  set fromnick [lindex [split $arg] 1] ; set fromhost [lindex [split $arg] 2]
++  if {$cmd != "wantkey" && ![nb_isnick $fromnick]} {return 0}
+   switch -exact -- $cmd {
+     "wantkey" {
+       if {[string match *k* [lindex [split [getchanmode $chan]] 0]]} {
+@@ -250,11 +252,12 @@
+     }
+     "wantinvite" {
+       if {![botisop $chan]} {return 0}
+-      set fromnick [lindex [split $arg] 1]
+       if {$bop_icheck && $fromhost != ""} {
+-        if {![info exists bop_who($fromnick)]} {
+-          set bop_who($fromnick) "$chan $frombot $fromhost"
+-          utimer 60 [list bop_whounset $fromnick]
++        set stlnick [string tolower $fromnick]
++        if {![info exists bop_who($stlnick)]} {
++          if {[array size bop_who] >= 50} {return 0}
++          set bop_who($stlnick) [list $chan $frombot $fromhost]
++          utimer 60 [list bop_whounset $stlnick]
+         }
+         putserv "WHO $fromnick"
+       } else {
+@@ -286,7 +289,7 @@
+     "wantunban" {
+       if {![botisop $chan]} {return 0}
+       foreach ban [chanbans $chan] {
+-        if {[string match [string tolower [lindex $ban 0]] [string tolower $fromhost]]} {
++        if {[string match -nocase [lindex $ban 0] $fromhost]} {
+           pushmode $chan -b [lindex $ban 0]
+           if {$bop_log >= 1} {
+             putlog "botnetop: unbanned $frombot on $chan"
+@@ -300,10 +303,11 @@
+ 
+ proc bop_raiselimit {chan frombot} {
+   global bop_log
+-  if {[string match *l* [lindex [split [getchanmode $chan]] 0]]} {
+-    set currlimit [string range [getchanmode $chan] [expr [string last " " [getchanmode $chan]] + 1] end]
++  if {![validchan $chan] || ![botonchan $chan] || ![botisop $chan]} {return 0}
++  set currlimit [nb_getlimit $chan]
++  if {$currlimit > 0} {
+     if {[llength [chanlist $chan]] >= $currlimit} {
+-      pushmode $chan +l [expr [llength [chanlist $chan]] + 1]
++      pushmode $chan +l [expr {[llength [chanlist $chan]] + 1}]
+       if {$bop_log >= 1} {
+         putlog "botnetop: raised limit on $chan as requested by $frombot"
+       }
+@@ -314,10 +318,11 @@
+ 
+ proc bop_who {from keyword arg} {
+   global bop_log bop_who
+-  set fromnick [lindex [split $arg] 5]
+-  if {[info exists bop_who($fromnick)]} {
+-    set chan [lindex [split $bop_who($fromnick)] 0] ; set frombot [lindex [split $bop_who($fromnick)] 1] ; set fromhost [lindex [split $bop_who($fromnick)] 2]
+-    unset bop_who($fromnick)
++  set fromnick [lindex [split $arg] 5] ; set stlnick [string tolower $fromnick]
++  if {[info exists bop_who($stlnick)]} {
++    set chan [lindex $bop_who($stlnick) 0] ; set frombot [lindex $bop_who($stlnick) 1] ; set fromhost [lindex $bop_who($stlnick) 2]
++    unset bop_who($stlnick)
++    if {![validchan $chan] || ![botisop $chan]} {return 0}
+     if {$fromhost == [string trimleft [lindex [split $arg] 2]@[lindex [split $arg] 3] "~+-^="]} {
+       putserv "INVITE $fromnick $chan"
+       if {$bop_log >= 1} {
+@@ -340,11 +345,19 @@
+   return
+ }
+ 
++# Only accept a key for a channel we're configured for, from a bot that is
++# allowed to give it, and only while we're actually asking for one.
+ proc bop_joinkey {frombot cmd arg} {
+-  global bop_kjoin
+-  set chan [lindex [split $arg] 0] ; set stlchan [string tolower $chan]
+-  if {[botonchan $chan] || $bop_kjoin($stlchan)} {return 0}
+-  putserv "JOIN $chan [lindex [split $arg] 1]"
++  global bop_kjoin bop_needk
++  set chan [lindex [split $arg] 0] ; set key [lindex [split $arg] 1]
++  if {![validchan $chan] || $key == "" || [regexp -- {[,\x00-\x1f]} $key]} {return 0}
++  if {![matchattr $frombot b] || ![matchattr $frombot fo|fo $chan]} {return 0}
++  set stlchan [string tolower $chan]
++  if {![info exists bop_kjoin($stlchan)]} {
++    bop_setneed $chan
++  }
++  if {[botonchan $chan] || $bop_kjoin($stlchan) || !$bop_needk($stlchan)} {return 0}
++  putserv "JOIN $chan $key"
+   set bop_kjoin($stlchan) 1
+   utimer 10 [list set bop_kjoin($stlchan) 0]
+   return 0
+@@ -354,7 +367,7 @@
+   global botnick
+   set bots 1
+   foreach bot [chanlist $chan b] {
+-    if {$bot != $botnick && [isop $bot $chan]} {
++    if {![string equal -nocase $bot $botnick] && [isop $bot $chan]} {
+       incr bots
+     }
+   }
+@@ -369,45 +382,41 @@
+ }
+ 
+ proc bop_setneed {chan} {
+-  global bop_kjoin bop_needk bop_needi bop_needl bop_needu bop_opreqs numversion
++  global bop_kjoin bop_needk bop_needi bop_needl bop_needu bop_opreqs
+   set stlchan [string tolower $chan]
+   set bop_opreqs($stlchan) 0 ; set bop_kjoin($stlchan) 0
+   set bop_needk($stlchan) 0 ; set bop_needi($stlchan) 0
+   set bop_needl($stlchan) 0 ; set bop_needu($stlchan) 0
+-  if {$numversion < 1060000} {
+-    channel set $chan need-op [split "bop_reqop $chan op"]
+-    channel set $chan need-key [split "bop_letmein $chan key"]
+-    channel set $chan need-invite [split "bop_letmein $chan invite"]
+-    channel set $chan need-limit [split "bop_letmein $chan limit"]
+-    channel set $chan need-unban [split "bop_letmein $chan unban"]
+-  }
+   return
+ }
+ 
+ proc bop_unsetneed {nick uhost hand chan {msg ""}} {
+-  global bop_kjoin bop_needk bop_needi bop_needl bop_needu bop_opreqs botnick
+-  if {$nick == $botnick && ![validchan $chan]} {
+-    set stlchan [string tolower $chan]
+-    catch {unset bop_opreqs($stlchan)} ; catch {unset bop_kjoin($stlchan)}
+-    catch {unset bop_needk($stlchan)} ; catch {unset bop_needi($stlchan)}
+-    catch {unset bop_needl($stlchan)} ; catch {unset bop_needu($stlchan)}
++  global botnick
++  if {[string equal -nocase $nick $botnick] && ![validchan $chan]} {
++    bop_dropchan [string tolower $chan]
+   }
+   return 0
+ }
+ 
+-proc bop_clearneeds {} {
+-  foreach chan [channels] {
+-    channel set $chan need-op ""
+-    channel set $chan need-invite ""
+-    channel set $chan need-key ""
+-    channel set $chan need-limit ""
+-    channel set $chan need-unban ""
++proc bop_dropchan {stlchan} {
++  global bop_kjoin bop_needk bop_needi bop_needl bop_needu bop_opreqs
++  foreach var {bop_opreqs bop_kjoin bop_needk bop_needi bop_needl bop_needu} {
++    if {[info exists ${var}($stlchan)]} {
++      unset ${var}($stlchan)
++    }
+   }
+-  bop_settimer
+   return
+ }
+ 
++# Every 5 minutes: reset request throttles, and drop state for channels that
++# have been removed (their part may never have been seen).
+ proc bop_settimer {} {
++  global bop_opreqs
++  foreach stlchan [array names bop_opreqs] {
++    if {![validchan $stlchan]} {
++      bop_dropchan $stlchan
++    }
++  }
+   foreach chan [channels] {
+     bop_setneed $chan
+   }
+@@ -417,11 +426,25 @@
+   return 0
+ }
+ 
+-if {$numversion >= 1060000} {
+-  bind need - * bop_reqop
++# Pre-1.6 versions of this script stored need-* Tcl scripts in the channel
++# settings; remove any such leftovers once (only ones this script wrote).
++proc bop_clearoldneeds {} {
++  foreach chan [channels] {
++    foreach need {op invite key limit unban} {
++      if {![catch {channel get $chan need-$need} script] && [string match "bop_*" $script]} {
++        catch {channel set $chan need-$need ""}
++      }
++    }
++  }
++  bop_settimer
++  return
+ }
+ 
+-utimer 2 bop_clearneeds
++bind need - * bop_reqop
++
++if {![string match *bop_clearoldneeds* [utimers]]} {
++  utimer 2 bop_clearoldneeds
++}
+ 
+ bind mode - * bop_modeop
+ if {!$bop_modeop} {
+@@ -445,4 +468,4 @@
+ bind part - * bop_unsetneed
+ bind raw - 352 bop_who
+ 
+-return "nb_info 4.10.0"
++return "nb_info 4.11.0"
+diff -ruN netbots4.10/chanlimit.tcl netbots4.11/chanlimit.tcl
+--- netbots4.10/chanlimit.tcl	2026-10-21 15:31:16.253982382 +0000
++++ netbots4.11/chanlimit.tcl	2026-10-21 15:31:16.250921711 +0000
+@@ -1,4 +1,4 @@
+-# netbots.tcl v4.10 (8 August 2005)
++# netbots.tcl v4.11 (security & bugfix release, based on v4.10 by slennox)
+ # Copyright 1998-2005 by slennox
+ # http://www.egghelp.org/
+ 
+@@ -58,21 +58,13 @@
+     }
+     if {![validchan $chan] || ![botonchan $chan] || ![botisop $chan]} {continue}
+     if {!$override && ![cl_priority $chan]} {continue}
++    # skip channels whose enforced chanmode already handles +l/-l
+     if {[string match *l* [lindex [lindex [channel info $chan] 0] 0]]} {continue}
+-    set newlimit [expr [llength [chanlist $chan]] + $cl_limit]
+-    if {[string match *l* [lindex [split [getchanmode $chan]] 0]]} {
+-      set currlimit [string range [getchanmode $chan] [expr [string last " " [getchanmode $chan]] + 1] end]
+-    } else {
+-      set currlimit 0
+-    }
++    set newlimit [expr {[llength [chanlist $chan]] + $cl_limit}]
++    # the limit isn't always the last word of getchanmode (e.g. "+lk 50 key")
++    set currlimit [nb_getlimit $chan]
+     if {$currlimit > 0} {
+-      if {$newlimit == $currlimit} {continue}
+-      if {$newlimit > $currlimit} {
+-        set difference [expr $newlimit - $currlimit]
+-      } elseif {$currlimit > $newlimit} {
+-        set difference [expr $currlimit - $newlimit]
+-      }
+-      if {$difference <= $cl_grace} {continue}
++      if {abs($newlimit - $currlimit) <= $cl_grace} {continue}
+     }
+     pushmode $chan +l $newlimit
+     if {$cl_log} {
+@@ -93,12 +85,14 @@
+ }
+ 
+ proc cl_dccdolimit {hand idx arg} {
++  putcmdlog "#$hand# dolimit $arg"
+   putidx $idx "Checking limits.."
+   cl_dolimit "" 1
+   return 0
+ }
+ 
+ proc cl_dccstoplimit {hand idx arg} {
++  putcmdlog "#$hand# stoplimit $arg"
+   if {[nb_killtimer "cl_timer"]} {
+     putidx $idx "Limiting is now OFF."
+   } else {
+@@ -109,8 +103,11 @@
+ 
+ proc cl_dccstartlimit {hand idx arg} {
+   global cl_timer
++  putcmdlog "#$hand# startlimit $arg"
+   if {[string match *cl_timer* [timers]]} {
+     putidx $idx "Limiting is already on."
++  } elseif {![string is integer -strict $cl_timer] || $cl_timer < 1} {
++    putidx $idx "Timed limiting is disabled (cl_timer is 0)."
+   } else {
+     timer $cl_timer cl_timer
+     putidx $idx "Limiting is now ON."
+@@ -122,12 +119,13 @@
+   if {$mode == "+l" && [string match "*.*" $nick]} {
+     cl_dolimit $chan 0
+   }
++  return 0
+ }
+ 
+ proc cl_timer {} {
+   global cl_timer
+   cl_dolimit "" 0
+-  if {$cl_timer && ![string match *cl_timer* [timers]]} {
++  if {[string is integer -strict $cl_timer] && $cl_timer > 0 && ![string match *cl_timer* [timers]]} {
+     timer $cl_timer cl_timer
+   }
+   return
+@@ -137,8 +135,12 @@
+ 
+ set cl_chans [split [string tolower $cl_chans]] ; set cl_echans [split [string tolower $cl_echans]]
+ 
+-if {$cl_timer && ![string match *cl_timer* [timers]]} {
+-  timer $cl_timer cl_timer
++if {[string is integer -strict $cl_timer] && $cl_timer > 0} {
++  if {![string match *cl_timer* [timers]]} {
++    timer $cl_timer cl_timer
++  }
++} else {
++  nb_killtimer cl_timer
+ }
+ 
+ bind mode - * cl_mode
+@@ -150,4 +152,4 @@
+ bind dcc m|m stoplimit cl_dccstoplimit
+ bind dcc m|m startlimit cl_dccstartlimit
+ 
+-return "nb_info 4.10.0"
++return "nb_info 4.11.0"
+diff -ruN netbots4.10/doc/components.txt netbots4.11/doc/components.txt
+--- netbots4.10/doc/components.txt	2026-10-21 15:31:16.253731372 +0000
++++ netbots4.11/doc/components.txt	2026-10-21 15:31:16.250081784 +0000
+@@ -1,7 +1,7 @@
+ ---------------------------------
+       NETBOTS DOCUMENTATION
+ ---------------------------------
+-        netbots.tcl v4.10
++        netbots.tcl v4.11
+     botnet script for eggdrop
+ ---------------------------------
+ Visit http://www.egghelp.org/ for
+@@ -137,7 +137,7 @@
+ 
+ This script was written mainly as an alternative to GetOps. It allows linked bots to securely give ops to one another on their channels. It also automatically invites linked bots to channels which are invite-only, shares keys with linked bots for channels which are keyed, raises a channel's limit if a bot can't get in because the channel is full, unbans a bot if it can't get in because it matches a ban, and automatically adds new hostmasks when a bot's user@host info has changed. There is a delayed op mechanism to prevent mode +o flooding whenever a bot joins a channel, and op/invite checking routines are significantly more secure than those in GetOps. The script is also compatible with bots running older versions of botnetop.tcl (v1.00 and up).
+ 
+-Note that botnetop.tcl regularly clears and/or overwrites the need settings (need-op, need-invite, etc.) at intervals to prevent errors when upgrading or switching to botnetop.tcl from another script. If you require need settings for another purpose you should use need 'binds' (eggdrop 1.6 only) instead.
++botnetop.tcl uses need binds. It no longer clears the need settings (need-op, need-invite, etc.) on every load; it only removes need settings that were written by pre-1.6 versions of this script.
+ 
+ About the bop_delay and bop_maxreq settings: botnetop.tcl uses two methods to reduce/eliminate mode +o flooding - bop_delay is used by the bot giving ops, while bop_maxreq is used by the bot asking for ops. You can use both features, one or the other, or disable both. Below is an explanation of some possible combinations.
+ 
+@@ -255,7 +255,7 @@
+ 
+ LOGFILE.TCL
+ 
+-This component adds features that allow you to easily retrieve and view bot logs. DCC commands .logs, .sendlog, and .maillog (for global +n users) let you list log files and send a log file via DCC or e-mail. An additional feature makes the bot automatically e-mail you yesterday's log files after the daily log file switch.
++This component adds features that allow you to easily retrieve and view bot logs. DCC commands .logs, .sendlog, and .maillog (for global +n users) let you list log files and send a log file via DCC or e-mail. Only the bot's own log files (as listed by .logs, including .yesterday files) can be sent, and e-mail addresses must be plain user@domain addresses. An additional feature makes the bot automatically e-mail you yesterday's log files after the daily log file switch.
+ 
+ Note that logfile.tcl is currently not designed to work with the keep-all-logs feature, and will not be completely functional with keep-all-logs enabled.
+ 
+diff -ruN netbots4.10/doc/netbots.txt netbots4.11/doc/netbots.txt
+--- netbots4.10/doc/netbots.txt	2026-10-21 15:31:16.253416169 +0000
++++ netbots4.11/doc/netbots.txt	2026-10-21 15:31:16.250148159 +0000
+@@ -1,7 +1,7 @@
+ ---------------------------------
+       NETBOTS DOCUMENTATION
+ ---------------------------------
+-        netbots.tcl v4.10
++        netbots.tcl v4.11
+     botnet script for eggdrop
+ ---------------------------------
+ Visit http://www.egghelp.org/ for
+@@ -32,7 +32,7 @@
+ 
+ netbots.tcl is a flexible, feature-rich, and relatively secure botnet script for eggdrop. It combines many of my previous standalone scripts, such as the original netbots.tcl, sentinel.tcl, botnetop.tcl, etc. with many additional refinements and features designed to make botnet management easier and less time-consuming.
+ 
+-netbots.tcl and the included component scripts support eggdrop 1.3.22 - 1.3.28, 1.4.0 - 1.4.5, and 1.6.0 - 1.6.17 and should work with future versions in these series. Versions of eggdrop ported to Windows are not officially supported, although the scripts may still work. netbots.tcl also supports bots compiled with Tcl 7.6 and Tcl 8.
++netbots.tcl v4.11 and the included component scripts require eggdrop 1.6.0 or later (1.6, 1.8, 1.9 and 1.10 series) and Tcl 8.4 or later; on older eggdrop versions the script refuses to load and logs a message instead. Versions of eggdrop ported to Windows are not officially supported, although the scripts may still work.
+ 
+ netbots.tcl isn't a simple script. It requires a reasonable knowledge of eggdrop and how to use Tcl scripts. If you're new to eggdrop, you should not attempt to use netbots.tcl.
+ 
+diff -ruN netbots4.10/doc/updates.txt netbots4.11/doc/updates.txt
+--- netbots4.10/doc/updates.txt	2026-10-21 15:31:16.253917277 +0000
++++ netbots4.11/doc/updates.txt	2026-10-21 15:31:16.250125999 +0000
+@@ -1,7 +1,7 @@
+ ---------------------------------
+              UPDATES
+ ---------------------------------
+-        netbots.tcl v4.10
++        netbots.tcl v4.11
+     botnet script for eggdrop
+ ---------------------------------
+ Visit http://www.egghelp.org/ for
+@@ -31,6 +31,12 @@
+ 
+ SETTINGS UPDATES
+ 
++v4.11
++- No required changes. Optional new setting 'nb_maxbuffer' (bytes, default 4194304) limits the size of a single netupdate transfer / botnet message.
++- The example nb_key is now "changethis"; the script warns at load time if nb_key is unchanged or shorter than 12 characters.
++- The example netset.tcl uses 'file attributes' instead of 'exec chmod'.
++- NOTE: every netbot must run v4.11 for netupdate to work between them (the receiver now only accepts files it asked for and the sender only serves updates it initiated).
++
+ v4.10
+ - Added 'cl_priority' setting to chanlimit.tcl section.
+ - Added 'ex_telnethost' setting to extras.tcl section.
+@@ -52,6 +58,43 @@
+ 
+ SCRIPT UPDATES
+ 
++v4.11
++Requirements:
++- eggdrop 1.6.0 or later. On older versions the script now logs a message and doesn't load (instead of calling 'die'). Compatibility code for eggdrop 1.3/1.4 has been removed.
++
++Security fixes (core):
++- netjump: the server argument was passed through eval, so '.netjump -all host:port:[cmd]' (or a crafted netjump from a control bot) executed arbitrary Tcl on every netbot, even with nb_nettcl disabled.
++- netchanset: channel names and settings were passed through eval (channel names may contain '[' ']'), and need-* settings (which are Tcl scripts) were only blocked in the first position. Both fixed for local and remote use; -reload parses config lines as lists and skips need-*.
++- Reply commands (rnetinfo, rnettcl, rnetshell, rnetserv, rnetpass, rmservers, rmsreset) bypass the control-bot check by design but used the remote-supplied idx directly, letting any netbot write arbitrary text into any idx - including bot links (raw botnet protocol). Replies now only go to partyline CHAT idxs of +n users.
++- netupdate: any netbot could request arbitrary files (e.g. bot configs, the userfile) from the hub with an unsolicited 'send'; the hub now only serves updates it initiated, refuses paths containing '..', and the old unused 'rnetupdate initiate' handler was removed. The receiver now only accepts start/write/close/end from the bot it asked and only for file names it requested.
++- netpass: password tables only ever change bot records; remote single-user changes check the user exists. nb_randpass uses /dev/urandom when available and generates 12-16 character passwords.
++- Botnet framing: invalid sids caused Tcl errors; multipart buffers were shared between bots (keyed only by a random 1-999 sid) and never expired. Buffers are now per bot, size limited (nb_maxbuffer), cleared when a bot unlinks and expired after 5 minutes. Empty nb_key now disables the protocol instead of sending plaintext.
++- nb_cmdcast never broadcasts the arguments of .chpass, .newpass, .netpass, .pass, .tcl, .nettcl, .set or .chaddr.
++
++Bug fixes (core):
++- nb_control was a single global reset by every partyline login, so one owner logging in silently changed another owner's .netcontrol selection. Selections are now per partyline session.
++- Component load errors stopped all remaining components (and the rest of netbots.tcl's load) from loading; the remaining components now still load.
++- Switching nb_flag to 'b'/'all' with a rehash left .chattr unbound until restart.
++- The nb_update time bind used the year field as a day-of-week, so the update check never ran. It now runs daily and checks at most once a week, with a 10 second HTTP timeout and proper cleanup.
++- '.netchanset -reload' leaked a file handle if any config line errored, and ignored .netcontrol on the local bot.
++- netpass table generation errored when there were no other netbots; .components errored when no scripts were found.
++- netupdate temp files collided for files with the same name in different directories, write errors left transfers stuck, and empty files could never be sent.
++- nb_randport could loop forever on an invalid port range and built huge lists for large ranges.
++- .netjump <bot> now works for the local bot and checks the bot is linked.
++- Removed unused helper procs slindex and stl, and global temporaries (nb_tclarg etc.) used by nettcl.
++
++Component fixes:
++- sentinel.tcl: the *banqueue procs wiped the whole ban queue instead of removing one entry (missing '$'); killban/killchanban/killignore were passed whole ban/ignore records instead of masks; per-channel state is created on demand and removed for deleted channels; timers no longer error on removed channels; rlock messages from other bots are validated and rate limited (they could be used to flood notes); turning sl_bxsimul off with a rehash now stops the away timer; uname/id are no longer exec'd on every rehash; invalid sl_locktimes entries are ignored.
++- repeat.tcl: reset timers were scheduled before the settings were split ('utimer "" ...'); toggling rp_efficient with a rehash left timers calling procs with the wrong arguments; disabled checks still counted forever (memory growth); notice text kept the leading ':'.
++- botnetop.tcl: a 'thekey' message from any linked bot could make the bot JOIN (now requires a configured channel, an authorised bot and a pending key request); missing channel validation caused errors; bop_who entries are case-insensitive and capped; the bot no longer wipes all need-* channel settings on every load; arrays for removed channels are cleaned up; limit parsing handles '+lk' modes; strict-host may be absent (eggdrop 1.8+); removed dead code (bop_doTheOp, pre-1.6 branches).
++- chanlimit.tcl: limit parsing handles keyed channels ('+lk 50 key'); .startlimit with cl_timer 0; commands are logged.
++- mass.tcl: .mass kick ignored the default reason; an empty KICK was sent when nobody matched; .netmass now honours nb_owner.
++- mainserver.tcl: jump used an empty port when a main server had no port; the retry message printed '1' instead of channel names; replies use the safe reply path; net commands honour nb_owner.
++- extras.tcl: disabling ex_newuser with a rehash left .+bot/.+user/.adduser unbound; ex_cleanup uses glob instead of exec ls; .clearbans shows usage for bad arguments; .inviteall/.opall validate the nick.
++- logfile.tcl: .sendlog/.maillog could send any file (e.g. the userfile); they are now limited to log files. The e-mail address was passed to exec unvalidated, so an address such as '>file' redirected output (file overwrite); addresses are validated and the log is fed through a channel. Old time binds are removed on rehash.
++- aidle.tcl: toggling ai_uidle with a rehash left two message loops running; no message is sent to channels the bot isn't on or when there are no channels/messages.
++- superbitch.tcl: duplicated punishment code merged; deops are only queued when the bot is opped.
++
+ v4.10 (8/8/2005)
+ 
+ Core updates:
+diff -ruN netbots4.10/extras.tcl netbots4.11/extras.tcl
+--- netbots4.10/extras.tcl	2026-10-21 15:31:16.254396499 +0000
++++ netbots4.11/extras.tcl	2026-10-21 15:31:16.250231475 +0000
+@@ -1,4 +1,4 @@
+-# netbots.tcl v4.10 (8 August 2005)
++# netbots.tcl v4.11 (security & bugfix release, based on v4.10 by slennox)
+ # Copyright 1998-2005 by slennox
+ # http://www.egghelp.org/
+ 
+@@ -67,11 +67,15 @@
+ 
+ proc ex_cleanup {min hour day month year} {
+   putlog "Checking for redundant files.."
+-  catch {exec ls -a} files
++  # glob instead of 'exec ls -a'; only regular files are considered
++  set files [glob -nocomplain -types {f hidden} -- .share* .nfs*]
++  if {[file isfile core]} {
++    lappend files core
++  }
+   foreach file $files {
+-    if {[string match .share* $file] || [string match .nfs* $file] || $file == "core"} {
++    if {[file isfile $file] && ([string match .share* $file] || [string match .nfs* $file] || $file == "core")} {
+       if {[catch {file atime $file} filedate]} {continue}
+-      if {[expr [unixtime] - $filedate] > 1800} {
++      if {[unixtime] - $filedate > 1800} {
+         if {![catch {file delete -- $file}]} {
+           putlog "Deleted '$file'."
+         }
+@@ -119,7 +123,7 @@
+             killchanban $banchan [lindex $ban 0] ; incr ccount
+           }
+         } else {
+-           killchanban $banchan [lindex $ban 0] ; incr ccount
++          killchanban $banchan [lindex $ban 0] ; incr ccount
+         }
+       }
+     }
+@@ -164,6 +168,8 @@
+         putidx $idx "Removed $count $chan [nb_plural ban bans $count]."
+       }
+     }
++  } else {
++    putidx $idx "Usage: clearbans <channel|-global|-all> \[creator\]"
+   }
+   return 0
+ }
+@@ -231,24 +237,42 @@
+   *dcc:adduser $hand $idx $arg
+ }
+ 
+-if {$ex_newuser != ""} {
+-  set ex_newuser [split $ex_newuser]
+-  unbind dcc t|- +bot *dcc:+bot ; bind dcc t|- +bot ex_+bot
+-  unbind dcc m|- +user *dcc:+user ; bind dcc m|- +user ex_+user
+-  unbind dcc m|m adduser *dcc:adduser ; bind dcc m|m adduser ex_adduser
++# Swap eggdrop's built-in command for our wrapper (or back), keeping the
++# built-in's own flags. Previously disabling ex_newuser and rehashing left
++# .+bot/.+user/.adduser unbound until restart.
++proc ex_swapdcc {cmd builtin wrapper deflags enable} {
++  set flags $deflags
++  foreach b [concat [binds $builtin] [binds $wrapper]] {
++    if {[lindex $b 0] == "dcc" && [lindex $b 2] == $cmd} {
++      set flags [lindex $b 1]
++    }
++  }
++  if {$enable} {
++    catch {unbind dcc $flags $cmd $builtin}
++    bind dcc $flags $cmd $wrapper
++  } else {
++    catch {unbind dcc $flags $cmd $wrapper}
++    catch {bind dcc $flags $cmd $builtin}
++  }
++  return
+ }
+ 
++set ex_newuser [split $ex_newuser]
++ex_swapdcc +bot *dcc:+bot ex_+bot t|- [llength $ex_newuser]
++ex_swapdcc +user *dcc:+user ex_+user m|- [llength $ex_newuser]
++ex_swapdcc adduser *dcc:adduser ex_adduser m|m [llength $ex_newuser]
++
+ # ex_opall feature
+ 
+ proc ex_opall {hand idx arg} {
+   putcmdlog "#$hand# opall $arg"
+   set nick [lindex [split $arg] 0]
+-  if {$nick == ""} {
++  if {![nb_isnick $nick]} {
+     putidx $idx "Usage: opall <nick>" ; return 0
+   }
+   set clist ""
+   foreach chan [channels] {
+-    if {[matchattr $hand o|o $chan] && ![matchattr $hand d|d $chan] && [botisop $chan] && [onchan $nick $chan] && [string tolower [nick2hand $nick $chan]] == [string tolower $hand]} {
++    if {[matchattr $hand o|o $chan] && ![matchattr $hand d|d $chan] && [botonchan $chan] && [botisop $chan] && [onchan $nick $chan] && [string tolower [nick2hand $nick $chan]] == [string tolower $hand]} {
+       pushmode $chan +o $nick
+       lappend clist $chan
+     }
+@@ -264,12 +288,12 @@
+ proc ex_inviteall {hand idx arg} {
+   putcmdlog "#$hand# inviteall $arg"
+   set nick [lindex [split $arg] 0]
+-  if {$nick == ""} {
++  if {![nb_isnick $nick]} {
+     putidx $idx "Usage: inviteall <nick>" ; return 0
+   }
+   set clist ""
+   foreach chan [channels] {
+-    if {[matchattr $hand o|o $chan] && [botisop $chan] && [string match *i* [lindex [split [getchanmode $chan]] 0]]} {
++    if {[matchattr $hand o|o $chan] && ![matchattr $hand d|d $chan] && [botonchan $chan] && [botisop $chan] && ![onchan $nick $chan] && [string match *i* [lindex [split [getchanmode $chan]] 0]]} {
+       putserv "INVITE $nick $chan"
+       lappend clist $chan
+     }
+@@ -294,16 +318,13 @@
+ # ex_telnethost feature
+ 
+ proc ex_telnethost {min hour day month year} {
+-  global ex_telnethost numversion
++  global ex_telnethost
+   putlog "Checking telnet hostmasks of $ex_telnethost users.."
+-  if {$numversion < 1060000} {
+-    set telnet "telnet"
+-  } else {
+-    set telnet "-telnet"
+-  }
++  set telnet "-telnet"
+   foreach user [userlist $ex_telnethost] {
++    if {[matchattr $user b]} {continue}
+     foreach host [getuser $user HOSTS] {
+-      if {![string match $telnet* $host]} {
++      if {![string match $telnet* $host] && [string first @ $host] != -1} {
+         set thost $telnet!*[string range $host [string first @ $host] end]
+         if {[lsearch -exact [getuser $user HOSTS] $thost] == -1} {
+           setuser $user HOSTS $thost
+@@ -337,4 +358,4 @@
+   rename ex_dcctelnethosts ""
+ }
+ 
+-return "nb_info 4.10.0"
++return "nb_info 4.11.0"
+diff -ruN netbots4.10/logfile.tcl netbots4.11/logfile.tcl
+--- netbots4.10/logfile.tcl	2026-10-21 15:31:16.254419062 +0000
++++ netbots4.11/logfile.tcl	2026-10-21 15:31:16.250817697 +0000
+@@ -1,4 +1,4 @@
+-# netbots.tcl v4.10 (8 August 2005)
++# netbots.tcl v4.11 (security & bugfix release, based on v4.10 by slennox)
+ # Copyright 1998-2005 by slennox
+ # http://www.egghelp.org/
+ 
+@@ -47,12 +47,12 @@
+   putcmdlog "#$hand# logs $arg"
+   set loglist ""
+   foreach log [logfile] {
+-    set logname [lindex [split $log] 2]
++    set logname [lindex $log 2]
+     if {[file exists $logname]} {
+       if {[catch {file size $logname} logsize]} {
+         set logsize 0
+       }
+-      set logsize [expr $logsize / 1024]
++      set logsize [expr {$logsize / 1024}]
+       if {$logsize < 1} {
+         set logsize 1
+       }
+@@ -62,7 +62,7 @@
+       if {[catch {file size $logname.yesterday} logsize]} {
+         set logsize 0
+       }
+-      set logsize [expr $logsize / 1024]
++      set logsize [expr {$logsize / 1024}]
+       if {$logsize < 1} {
+         set logsize 1
+       }
+@@ -80,24 +80,64 @@
+   return 0
+ }
+ 
++# Only files that are (yesterday's) eggdrop log files may be sent, so these
++# commands can't be used to pull the userfile, config or other files.
++proc lg_islog {file} {
++  if {$file == ""} {return 0}
++  foreach log [logfile] {
++    set logname [lindex $log 2]
++    if {$file == $logname || $file == "$logname.yesterday"} {
++      return [file isfile $file]
++    }
++  }
++  return 0
++}
++
++# Plain user@domain only. The address is passed to exec, where words such as
++# ">file" or "<file" would be treated as redirections.
++proc lg_validemail {email} {
++  return [regexp -- {^[A-Za-z0-9._%+=][A-Za-z0-9._%+=-]*@[A-Za-z0-9][A-Za-z0-9.-]*\.[A-Za-z]{2,}$} $email]
++}
++
++proc lg_mail {file email} {
++  global botnet-nick
++  if {![lg_validemail $email]} {
++    return "invalid e-mail address '$email'"
++  }
++  if {[catch {open $file r} rfile]} {
++    return "cannot open $file"
++  }
++  # feed the log on stdin from a channel, never via an exec redirection word
++  if {[catch {exec mail -s "$file from ${botnet-nick}" $email <@ $rfile} err]} {
++    close $rfile
++    return "mail failed: $err"
++  }
++  close $rfile
++  return ""
++}
++
+ proc lg_sendlog {hand idx arg} {
+   putcmdlog "#$hand# sendlog $arg"
+   set file [lindex [split $arg] 0] ; set nick [lindex [split $arg] 1]
+   if {$file == "" || $nick == ""} {
+     putidx $idx "Usage: sendlog <logfile> <nick>" ; return 0
+   }
++  if {![lg_islog $file]} {
++    putidx $idx "'$file' is not a log file (see .logs)." ; return 0
++  }
+   switch -exact -- [dccsend $file $nick] {
+     0 {putidx $idx "Sending $file to $nick"}
+     1 {putidx $idx "Error: can't send $file (too many connections)"}
+     2 {putidx $idx "Error: can't send $file (can't open socket)"}
+     3 {putidx $idx "File '$file' does not exist."}
+     4 {putidx $idx "Error: can't send $file ($nick has too many transfers)"}
++    default {putidx $idx "Error: can't send $file"}
+   }
+   return 0
+ }
+ 
+ proc lg_maillog {hand idx arg} {
+-  global botnet-nick lg_email
++  global lg_email
+   putcmdlog "#$hand# maillog $arg"
+   set file [lindex [split $arg] 0]
+   if {$file == ""} {
+@@ -107,25 +147,25 @@
+   if {$email == ""} {
+     set email $lg_email
+   }
+-  if {![file exists $file]} {
+-    putidx $idx "File '$file' does not exist."
++  if {![lg_islog $file]} {
++    putidx $idx "'$file' is not a log file (see .logs)."
++  } elseif {[set err [lg_mail $file $email]] != ""} {
++    putidx $idx "Error sending $file to $email: $err"
+   } else {
+-    if {[catch {exec mail -s "$file from ${botnet-nick}" $email < $file}]} {
+-      putidx $idx "Error sending $file to $email"
+-    } else {
+-      putidx $idx "Sent $file to $email"
+-    }
++    putidx $idx "Sent $file to $email"
+   }
+   return 0
+ }
+ 
+ proc lg_timer {min hour day month year} {
+-  timer 3 lg_sendmail
++  if {![string match *lg_sendmail* [timers]]} {
++    timer 3 lg_sendmail
++  }
+   return 0
+ }
+ 
+ proc lg_sendmail {} {
+-  global botnet-nick lg_email lg_maillog lg_maxsize
++  global lg_email lg_maillog lg_maxsize
+   if {[info exists lg_maillog] && $lg_maillog != ""} {
+     putlog "Sending logs.."
+     foreach file [split $lg_maillog] {
+@@ -135,11 +175,11 @@
+         if {[catch {file size $file} filesize]} {
+           set filesize 0
+         }
+-        if {[expr $filesize / 1024] > $lg_maxsize} {
++        if {$filesize / 1024 > $lg_maxsize} {
+           putlog "$file is larger than $lg_maxsize K, not sending." ; continue
+         }
+-        if {[catch {exec mail -s "$file from ${botnet-nick}" $lg_email < $file}]} {
+-          putlog "Error sending $file to $lg_email"
++        if {[set err [lg_mail $file $lg_email]] != ""} {
++          putlog "Error sending $file to $lg_email: $err"
+         } else {
+           putlog "Sent $file to $lg_email"
+         }
+@@ -149,6 +189,12 @@
+   return 0
+ }
+ 
++# rebind from scratch so a changed switch-logfiles-at doesn't leave the old
++# time bind behind after a rehash
++foreach lg_bind [binds lg_timer] {
++  catch {unbind time - [lindex $lg_bind 2] lg_timer}
++}
++catch {unset lg_bind}
+ if {[string length ${switch-logfiles-at}] == 3} {
+   bind time - "[string range ${switch-logfiles-at} 1 2] 0[string index ${switch-logfiles-at} 0] * * *" lg_timer
+ } elseif {[string length ${switch-logfiles-at}] == 4} {
+@@ -158,4 +204,4 @@
+ bind dcc n sendlog lg_sendlog
+ bind dcc n maillog lg_maillog
+ 
+-return "nb_info 4.10.0"
++return "nb_info 4.11.0"
+diff -ruN netbots4.10/mainserver.tcl netbots4.11/mainserver.tcl
+--- netbots4.10/mainserver.tcl	2026-10-21 15:31:16.254438904 +0000
++++ netbots4.11/mainserver.tcl	2026-10-21 15:31:16.250877703 +0000
+@@ -1,4 +1,4 @@
+-# netbots.tcl v4.10 (8 August 2005)
++# netbots.tcl v4.11 (security & bugfix release, based on v4.10 by slennox)
+ # Copyright 1998-2005 by slennox
+ # http://www.egghelp.org/
+ 
+@@ -43,38 +43,64 @@
+ set nb_help(mservers) "ms_help"
+ set nb_help(msreset) "ms_help"
+ 
+-proc ms_chkserver {} {
+-  global botnick ms_chans ms_chktime ms_mservers ms_needbot nb_realserver server
+-  set onserver $server
++# Current server name, preferring the real name reported in raw 001.
++proc ms_onserver {} {
++  global nb_realserver server
++  if {![info exists server]} {return ""}
+   if {$server != "" && [info exists nb_realserver] && [string tolower [lindex [split $server :] 0]] != [string tolower $nb_realserver]} {
+-    set onserver $nb_realserver
++    return $nb_realserver
+   }
+-  if {![ms_ismserver $onserver]} {
+-    putlog "mainserver: I'm not on a main server - checking to see if I can jump.."
+-    set lowbots ""
+-    if {$ms_chans == ""} {
+-      set ms_chans [channels]
+-    }
+-    foreach chan $ms_chans {
+-      if {![validchan $chan] || ![botonchan $chan] || ![botisop $chan]} {continue}
+-      set bots 0
+-      foreach bot [chanlist $chan b] {
+-        if {$bot == $botnick} {continue}
+-        set hand [nick2hand $bot $chan]
+-        if {[islinked $hand] && ![onchansplit $bot $chan] && [matchattr $hand o|o $chan] && [isop $bot $chan]} {
+-          incr bots
+-        }
+-      }
+-      if {$bots < $ms_needbot} {
+-        lappend lowbots $chan
++  return $server
++}
++
++# Channels in which there aren't enough linked, opped bots to reop us.
++proc ms_lowbots {} {
++  global botnick ms_chans ms_needbot
++  set lowbots ""
++  if {$ms_chans == ""} {
++    set chans [channels]
++  } else {
++    set chans $ms_chans
++  }
++  foreach chan $chans {
++    if {![validchan $chan] || ![botonchan $chan] || ![botisop $chan]} {continue}
++    set bots 0
++    foreach bot [chanlist $chan b] {
++      if {[string equal -nocase $bot $botnick]} {continue}
++      set hand [nick2hand $bot $chan]
++      if {[islinked $hand] && ![onchansplit $bot $chan] && [matchattr $hand o|o $chan] && [isop $bot $chan]} {
++        incr bots
+       }
+     }
++    if {$bots < $ms_needbot} {
++      lappend lowbots $chan
++    }
++  }
++  return $lowbots
++}
++
++# Jump to a random main server. Ports/ranges/passwords are handled like the
++# server list (the old code passed an empty port when none was given).
++proc ms_jump {} {
++  global ms_mservers
++  if {![llength $ms_mservers]} {return 0}
++  set mserver [lindex [nb_randport [list [lindex $ms_mservers [rand [llength $ms_mservers]]]]] 0]
++  if {$mserver == ""} {return 0}
++  return [nb_jump $mserver]
++}
++
++proc ms_chkserver {} {
++  global ms_chktime ms_needbot
++  set onserver [ms_onserver]
++  if {![ms_ismserver $onserver]} {
++    putlog "mainserver: I'm not on a main server - checking to see if I can jump.."
++    set lowbots [ms_lowbots]
+     if {$lowbots != ""} {
+       putlog "mainserver: I can't jump because there aren't enough bots to reop me in [join $lowbots ", "] - will try again in $ms_chktime minutes."
+       timer $ms_chktime ms_chkserver
+     } else {
+       putlog "mainserver: found $ms_needbot [nb_plural bot bots $ms_needbot] to reop me on rejoin - jumping to a main server.."
+-      jump [lindex [split [lindex $ms_mservers 0] :] 0] [lindex [split [lindex $ms_mservers 0] :] 1]
++      ms_jump
+       utimer 300 ms_dblcheck
+     }
+   } else {
+@@ -84,11 +110,8 @@
+ }
+ 
+ proc ms_dblcheck {} {
+-  global ms_chktime ms_failed ms_tryagn nb_realserver server
+-  set onserver $server
+-  if {$server != "" && [info exists nb_realserver] && [string tolower [lindex [split $server :] 0]] != [string tolower $nb_realserver]} {
+-    set onserver $nb_realserver
+-  }
++  global ms_chktime ms_failed ms_tryagn
++  set onserver [ms_onserver]
+   if {![ms_ismserver $onserver]} {
+     putlog "mainserver: failed to connect to a main server - will try once more in $ms_tryagn minutes."
+     set ms_failed 1
+@@ -102,37 +125,17 @@
+ }
+ 
+ proc ms_tryagn {} {
+-  global botnick ms_chans ms_chktime ms_mservers ms_needbot ms_tryagn nb_realserver server
+-  set onserver $server
+-  if {$server != "" && [info exists nb_realserver] && [string tolower [lindex [split $server :] 0]] != [string tolower $nb_realserver]} {
+-    set onserver $nb_realserver
+-  }
++  global ms_chktime ms_needbot ms_tryagn
++  set onserver [ms_onserver]
+   if {![ms_ismserver $onserver]} {
+     putlog "mainserver: failed to connect to a main server $ms_tryagn minutes ago - trying once more.."
+-    set lowbots ""
+-    if {$ms_chans == ""} {
+-      set ms_chans [channels]
+-    }
+-    foreach chan $ms_chans {
+-      if {![validchan $chan] || ![botonchan $chan] || ![botisop $chan]} {continue}
+-      set bots 0
+-      foreach bot [chanlist $chan b] {
+-        if {$bot == $botnick} {continue}
+-        set hand [nick2hand $bot $chan]
+-        if {[islinked $hand] && ![onchansplit $bot $chan] && [matchattr $hand o|o $chan] && [isop $bot $chan]} {
+-          incr bots
+-        }
+-      }
+-      if {$bots < $ms_needbot} {
+-        set lowbots 1
+-      }
+-    }
++    set lowbots [ms_lowbots]
+     if {$lowbots != ""} {
+       putlog "mainserver: I can't jump because there aren't enough bots to reop me in [join $lowbots ", "] - will try again in $ms_chktime minutes."
+       timer $ms_chktime ms_tryagn
+     } else {
+       putlog "mainserver: found $ms_needbot [nb_plural bot bots $ms_needbot] to reop me on rejoin - jumping to a main server.."
+-      jump [lindex [split [lindex $ms_mservers 0] :] 0] [lindex [split [lindex $ms_mservers 0] :] 1]
++      ms_jump
+       utimer 300 ms_forgetit
+     }
+   } else {
+@@ -142,15 +145,12 @@
+ }
+ 
+ proc ms_forgetit {} {
+-  global ms_autoreset ms_chktime ms_failed ms_loaded ms_mservers ms_note nb_realserver server
+-  set onserver $server
+-  if {$server != "" && [info exists nb_realserver] && [string tolower [lindex [split $server :] 0]] != [string tolower $nb_realserver]} {
+-    set onserver $nb_realserver
+-  }
++  global ms_autoreset ms_chktime ms_failed ms_loaded ms_mservers ms_note
++  set onserver [ms_onserver]
+   if {![ms_ismserver $onserver]} {
+     putlog "mainserver: failed to connect to a main server on second attempt."
+     if {$ms_autoreset} {
+-      timer [expr $ms_autoreset * 60] ms_autoreset
++      timer [expr {$ms_autoreset * 60}] ms_autoreset
+       putlog "mainserver: automatically resetting mainserver timer in $ms_autoreset [nb_plural hour hours $ms_autoreset]."
+     }
+     set ms_failed 2 ; set ms_loaded 0
+@@ -170,17 +170,14 @@
+ }
+ 
+ proc ms_dccmserver {hand idx arg} {
+-  global default-port ms_failed ms_mservers nb_realserver server
++  global ms_failed ms_mservers
+   putcmdlog "#$hand# mserver $arg"
+-  if {$arg != ""} {
+-    set ms_mservers [split $arg]
++  if {[string trim $arg] != ""} {
++    set ms_mservers [split [string trim $arg]]
+     putidx $idx "Temporarily changed main [nb_plural server servers [llength $ms_mservers]] to [join $ms_mservers ", "]"
+     return 0
+   }
+-  set onserver $server
+-  if {$server != "" && [info exists nb_realserver] && [string tolower [lindex [split $server :] 0]] != [string tolower $nb_realserver]} {
+-    set onserver $nb_realserver
+-  }
++  set onserver [ms_onserver]
+   putidx $idx "mainserver.tcl by slennox"
+   putidx $idx "Use .mserver <servers> to temporarily change main server(s)."
+   putidx $idx "This bot's main servers are: [join $ms_mservers ", "]"
+@@ -219,16 +216,14 @@
+ }
+ 
+ proc ms_dccmservers {hand idx arg} {
+-  global botnet-nick ms_mservers nb_realserver server
++  global botnet-nick ms_mservers
++  if {![nb_checkowner $hand $idx]} {return 0}
+   putcmdlog "#$hand# mservers $arg"
+   set tmrstatus ""
+   if {![ms_timer]} {
+     set tmrstatus "\[timer inactive\]"
+   }
+-  set onserver $server
+-  if {$server != "" && [info exists nb_realserver] && [string tolower [lindex [split $server :] 0]] != [string tolower $nb_realserver]} {
+-    set onserver $nb_realserver
+-  }
++  set onserver [ms_onserver]
+   if {$onserver == ""} {
+     putidx $idx "${botnet-nick} is not on a server (main servers: [join $ms_mservers ", "]) $tmrstatus"
+   } elseif {![ms_ismserver $onserver]} {
+@@ -241,11 +236,8 @@
+ }
+ 
+ proc ms_mservers {frombot arg} {
+-  global botnick ms_mservers nb_realserver server
+-  set onserver $server
+-  if {$server != "" && [info exists nb_realserver] && [string tolower [lindex [split $server :] 0]] != [string tolower $nb_realserver]} {
+-    set onserver $nb_realserver
+-  }
++  global ms_mservers
++  set onserver [ms_onserver]
+   if {$onserver == ""} {
+     set main "none"
+   } elseif {![ms_ismserver $onserver]} {
+@@ -268,11 +260,11 @@
+     set tmrstatus "\[timer inactive\]"
+   }
+   if {$server == "none"} {
+-    putidx [lindex $arg 0] "$frombot is not on a server (main servers: $mservers) $tmrstatus"
++    nb_putidx [lindex $arg 0] "$frombot is not on a server (main servers: $mservers) $tmrstatus"
+   } elseif {$server == "notmain"} {
+-    putidx [lindex $arg 0] "$frombot is on $onserver (main servers: $mservers) $tmrstatus"
++    nb_putidx [lindex $arg 0] "$frombot is on $onserver (main servers: $mservers) $tmrstatus"
+   } else {
+-    putidx [lindex $arg 0] "$frombot is on $onserver (a main server) $tmrstatus"
++    nb_putidx [lindex $arg 0] "$frombot is on $onserver (a main server) $tmrstatus"
+   }
+   return 0
+ }
+@@ -281,15 +273,16 @@
+   global ms_chktime ms_failed ms_loaded
+   putcmdlog "#$hand# msreset $arg"
+   set bot [lindex [split $arg] 0]
++  if {$bot != "" && ![nb_checkowner $hand $idx]} {return 0}
+   if {$bot != ""} {
+     if {$bot == "-all"} {
+-      nb_sendcmd * msreset [split $idx]
++      nb_sendcmd * msreset [list $idx]
+       putidx $idx "Resetting mainserver timer on all bots.."
+     } else {
+       if {![islinked $bot]} {
+         putidx $idx "$bot is not linked." ; return 0
+       }
+-      nb_sendcmd $bot msreset [split $idx]
++      nb_sendcmd $bot msreset [list $idx]
+       putidx $idx "Resetting mainserver timer on $bot"
+     }
+   } else {
+@@ -318,9 +311,9 @@
+ 
+ proc ms_rmsreset {frombot arg} {
+   if {[lindex $arg 1] == "tmractive"} {
+-    putidx [lindex $arg 0] "$frombot: server check is already active."
++    nb_putidx [lindex $arg 0] "$frombot: server check is already active."
+   } else {
+-    putidx [lindex $arg 0] "$frombot: reset mainserver timer, will resume checking to make sure I'm on a main server."
++    nb_putidx [lindex $arg 0] "$frombot: reset mainserver timer, will resume checking to make sure I'm on a main server."
+   }
+   return 0
+ }
+@@ -337,6 +330,7 @@
+ 
+ proc ms_ismserver {server} {
+   global ms_mservers
++  if {$server == ""} {return 0}
+   set server [string tolower [lindex [split $server :] 0]] ; set mservers ""
+   foreach mserver $ms_mservers {
+     set mserver [string tolower [lindex [split $mserver :] 0]]
+@@ -359,7 +353,7 @@
+   timer $ms_chktime ms_chkserver
+ }
+ 
+-set ms_chans [split $ms_chans] ; set ms_note [split $ms_note]
++set ms_chans [split [string trim $ms_chans]] ; set ms_note [split $ms_note]
+ set servers [nb_randport [concat [nb_randomise $ms_mservers] [nb_randomise $ms_servers]]]
+ 
+ set nb_netcmds(mservers) "ms_mservers"
+@@ -371,4 +365,4 @@
+ bind dcc n mservers ms_dccmservers
+ bind dcc n msreset ms_dccmsreset
+ 
+-return "nb_info 4.10.0"
++return "nb_info 4.11.0"
+diff -ruN netbots4.10/mass.tcl netbots4.11/mass.tcl
+--- netbots4.10/mass.tcl	2026-10-21 15:31:16.253949943 +0000
++++ netbots4.11/mass.tcl	2026-10-21 15:31:16.250901492 +0000
+@@ -1,4 +1,4 @@
+-# netbots.tcl v4.10 (8 August 2005)
++# netbots.tcl v4.11 (security & bugfix release, based on v4.10 by slennox)
+ # Copyright 1998-2005 by slennox
+ # http://www.egghelp.org/
+ 
+@@ -76,7 +76,7 @@
+         } else {
+           set reason [join [lrange [split $arg] 2 end]]
+         }
+-        ma_kick $chan [join [lrange [split $arg] 2 end]]
++        ma_kick $chan $reason
+       }
+       "op" {
+         if {$option == "none" || $option == "-ops"} {
+@@ -118,6 +118,7 @@
+ 
+ proc ma_dccnetmass {hand idx arg} {
+   global ma_reason nb_control
++  if {![nb_checkowner $hand $idx]} {return 0}
+   putcmdlog "#$hand# netmass $arg"
+   set type [lindex [split $arg] 0] ; set chan [lindex [split $arg] 1]
+   if {$type == "" || $chan == ""} {
+@@ -201,8 +202,9 @@
+ 
+ proc ma_netmass {frombot arg} {
+   set type [lindex $arg 1] ; set chan [lindex $arg 2]
++  if {[info commands putserv] == "" || ![validchan $chan]} {return 0}
+   putlog "netbots \[[lindex $arg 0]@$frombot\]: mass $type $chan."
+-  if {![validchan $chan] || ![botonchan $chan] || ![botisop $chan]} {return 0}
++  if {![botonchan $chan] || ![botisop $chan]} {return 0}
+   set option [lindex $arg 3]
+   switch -exact -- $type {
+     "kick" {
+@@ -234,24 +236,28 @@
+ 
+ proc ma_kick {chan reason} {
+   global botnick ma_kicks
++  global ma_reason
++  if {$reason == ""} {
++    set reason $ma_reason
++  }
+   putserv "MODE $chan +i"
+   set nlist ""
+   foreach nick [nb_randomise [chanlist $chan]] {
+-    if {[isop $nick $chan] || [isvoice $nick $chan] || [matchattr [nick2hand $nick $chan] fov|fov $chan] || $nick == $botnick || [onchansplit $nick $chan]} {continue}
++    if {[isop $nick $chan] || [isvoice $nick $chan] || [matchattr [nick2hand $nick $chan] fov|fov $chan] || [string equal -nocase $nick $botnick] || [onchansplit $nick $chan]} {continue}
+     lappend nlist $nick
+     if {[llength $nlist] >= $ma_kicks} {
+       putserv "KICK $chan [join $nlist ,] :$reason"
+-      unset nlist
++      set nlist ""
+     }
+   }
+-  if {[info exists nlist]} {
++  # don't send an empty KICK when there was nobody (left) to kick
++  if {[llength $nlist]} {
+     putserv "KICK $chan [join $nlist ,] :$reason"
+   }
+   return 0
+ }
+ 
+ proc ma_op {chan option} {
+-  global botnick nb_flag
+   set randlist [nb_randomise [chanlist $chan]]
+   if {$option == "-ops"} {
+     foreach nick $randlist {
+@@ -298,7 +304,7 @@
+ }
+ 
+ proc ma_voice {chan option} {
+-  global botnick nb_flag
++  global botnick
+   set randlist [nb_randomise [chanlist $chan]]
+   if {$option == "-all"} {
+     foreach nick $randlist {
+@@ -316,7 +322,7 @@
+ }
+ 
+ proc ma_devoice {chan option} {
+-  global botnick nb_flag
++  global botnick
+   set randlist [nb_randomise [chanlist $chan]]
+   if {$option == "-all"} {
+     foreach nick $randlist {
+@@ -348,4 +354,4 @@
+ }
+ bind dcc n netmass ma_dccnetmass
+ 
+-return "nb_info 4.10.0"
++return "nb_info 4.11.0"
+diff -ruN netbots4.10/netbots.tcl netbots4.11/netbots.tcl
+--- netbots4.10/netbots.tcl	2026-10-21 15:31:16.254066948 +0000
++++ netbots4.11/netbots.tcl	2026-10-21 15:31:16.250176559 +0000
+@@ -1,4 +1,4 @@
+-# netbots.tcl v4.10 (8 August 2005)
++# netbots.tcl v4.11 (security & bugfix release, based on v4.10 by slennox)
+ # Copyright 1998-2005 by slennox
+ # http://www.egghelp.org/
+ 
+@@ -7,11 +7,13 @@
+ ## Please read netbots.txt and components.txt before using this script ##
+ ## Settings must be configured in netset.tcl ##
+ 
+-set nb_ver "v4.10" ; set nb_numver "4100"
++set nb_ver "v4.11" ; set nb_numver "4110"
+ putlog "Loading netbots.tcl $nb_ver..."
+ 
+-if {[string trimleft [lindex [split $version] 1] 0] < 1032200} {
+-  die "*** netbots.tcl $nb_ver requires eggdrop 1.3.22 or later. Please upgrade your eggdrop or remove the script."
++# Refuse to load (rather than killing the bot with 'die') on unsupported versions.
++if {![info exists numversion] || $numversion < 1060000} {
++  putlog "*** netbots.tcl $nb_ver requires eggdrop 1.6.0 or later. Script NOT loaded."
++  return
+ }
+ 
+ set nb_script [info script]
+@@ -45,9 +47,12 @@
+   }
+ }
+ 
+-if {[info exists nb_ctrlbots]} {
+-  unset nb_ctrlbots
++foreach nb_lvar {nb_ctrlbots nb_group} {
++  if {[info exists $nb_lvar]} {
++    unset $nb_lvar
++  }
+ }
++unset nb_lvar
+ 
+ if {[catch {source $nb_setscript} nb_error]} {
+   putlog "*** WARNING: error found when loading $nb_setscript:"
+@@ -56,36 +61,8 @@
+   return
+ }
+ 
+-if {$numversion < 1040200} {
+-  if {[info commands isop] != ""} {
+-    proc wasop {nick chan} {
+-      return [isop $nick $chan]
+-    }
+-  }
+-  if {$numversion < 1032500} {
+-    proc islinked {bot} {
+-      if {[lsearch -exact [string tolower [bots]] [string tolower $bot]] == -1} {return 0}
+-      return 1
+-    }
+-    if {$numversion < 1032400} {
+-      if {[info commands onchan] != ""} {
+-        proc botonchan {chan} {
+-          global botnick
+-          if {![validchan $chan]} {
+-            error "illegal channel: $chan"
+-          } elseif {![onchan $botnick $chan]} {
+-            return 0
+-          }
+-          return 1
+-        }
+-      }
+-      if {[info commands putserv] != ""} {
+-        proc putquick {text args} {
+-          putserv $text
+-        }
+-      }
+-    }
+-  }
++if {![info exists nb_key] || [string length $nb_key] < 12 || $nb_key == "changethis" || $nb_key == "zxcvvbnmasdfghjkl1234567890"} {
++  putlog "*** netbots.tcl WARNING: nb_key is unset, too short (<12 chars) or still the example value. Change it in netset.tcl on ALL netbots."
+ }
+ 
+ proc isbotnetnick {nick} {
+@@ -94,12 +71,55 @@
+   return 0
+ }
+ 
+-proc slindex {string n} {
+-  return [lindex [split $string] $n]
++# Deliver a reply (from a remote netbot) to a local partyline idx. Replies are
++# only accepted for idxs that are real partyline CHAT sessions of owners, so a
++# netbot cannot write arbitrary text into another bot link or a user session.
++proc nb_putidx {idx text} {
++  if {![string is integer -strict $idx] || ![valididx $idx]} {return 0}
++  set ok 0
++  foreach dccuser [dcclist CHAT] {
++    if {[lindex $dccuser 0] == $idx} {
++      set ok 1 ; break
++    }
++  }
++  if {!$ok || ![matchattr [idx2hand $idx] n]} {return 0}
++  putidx $idx [string map {"\r" "" "\n" " "} $text]
++  return 1
++}
++
++# Basic sanity check for channel names received from users or other bots.
++proc nb_ischan {chan} {
++  if {$chan == "" || [string length $chan] > 100} {return 0}
++  if {[string trim [string index $chan 0] "#+&!"] != ""} {return 0}
++  if {[regexp -- {[\s,\x00-\x1f]} $chan]} {return 0}
++  return 1
+ }
+ 
+-proc stl {string} {
+-  return [string tolower $string]
++# Sanity check for nicknames received from other bots.
++proc nb_isnick {nick} {
++  if {$nick == "" || [string length $nick] > 64} {return 0}
++  if {[regexp -- {[\s,!@*?:\x00-\x1f]} $nick]} {return 0}
++  if {[string trim [string index $nick 0] "#+&!"] == ""} {return 0}
++  return 1
++}
++
++# Returns the current +l limit for a channel, or 0 if none. getchanmode lists
++# parameters in mode-letter order, so the limit is not always the last word.
++proc nb_getlimit {chan} {
++  set mode [split [getchanmode $chan]]
++  set flags [lindex $mode 0] ; set params [lrange $mode 1 end]
++  set pidx 0
++  foreach c [split $flags ""] {
++    switch -exact -- $c {
++      "k" {incr pidx}
++      "l" {
++        set limit [lindex $params $pidx]
++        if {[string is integer -strict $limit]} {return $limit}
++        return 0
++      }
++    }
++  }
++  return 0
+ }
+ 
+ if {[info exists nb_helpidx]} {
+@@ -332,6 +352,7 @@
+   if {![nb_checkowner $hand $idx]} {return 0}
+   putcmdlog "#$hand# components $arg"
+   if {[lindex [split $arg] 0] == "-more"} {
++    set components ""
+     foreach component [lsort [array names nb_components]] {
+       if {$nb_components($component) != ""} {
+         lappend components "$component ($nb_components($component))"
+@@ -350,6 +371,7 @@
+     putlog "Unable to list component scripts in '$nb_dir'."
+     return 0
+   }
++  set available ""
+   foreach script $scripts {
+     set script [file tail $script]
+     if {$script != [file tail $nb_setscript]} {
+@@ -448,32 +470,31 @@
+ }
+ 
+ proc nb_dccnetcontrol {hand idx arg} {
+-  global nb_control nb_group
++  global nb_control nb_ctrlidx nb_group
+   if {![nb_checkowner $hand $idx]} {return 0}
+   putcmdlog "#$hand# netcontrol $arg"
+-  regsub -all -- ", " $arg "," bots ; regsub -all -- " " $bots "," bots
++  regsub -all -- {[, ]+} [string trim $arg] "," bots
+   if {$bots == ""} {
+     if {$nb_control == "*"} {
+       putidx $idx "* Controlling all netbots."
+     } else {
+-      regsub -all -- "," $nb_control ", " ctrlbots
+-      putidx $idx "* Controlling netbots: $ctrlbots"
++      putidx $idx "* Controlling netbots: [join [split $nb_control ,] ", "]"
+     }
+-    if {[info exists nb_group]} {
++    if {[array exists nb_group]} {
+       putidx $idx "  Available groups: [join [array names nb_group] ", "]"
+     }
++    return 0
+   } elseif {$bots == "*"} {
+     set nb_control "*"
+     putidx $idx "* Now controlling all netbots."
+   } elseif {[info exists nb_group($bots)]} {
+     set nb_control $nb_group($bots)
+-    regsub -all -- "," $nb_control ", " ctrlbots
+-    putidx $idx "* Now controlling '$bots' netbots: $ctrlbots"
++    putidx $idx "* Now controlling '$bots' netbots: [join [split $nb_control ,] ", "]"
+   } else {
+     set nb_control $bots
+-    regsub -all -- "," $nb_control ", " ctrlbots
+-    putidx $idx "* Now controlling netbots: $ctrlbots"
++    putidx $idx "* Now controlling netbots: [join [split $nb_control ,] ", "]"
+   }
++  set nb_ctrlidx($idx) $nb_control
+   return 0
+ }
+ 
+@@ -567,21 +588,21 @@
+ proc nb_rnetinfo {frombot arg} {
+   set idx [lindex $arg 0]
+   if {[llength $arg] == 3} {
+-    foreach line [lindex $arg 2] {
++    foreach line [lrange [lindex $arg 2] 0 49] {
+       if {![info exists firstline]} {
+-        putidx $idx [format "%-10.10s %-8.8s %s" $frombot [lindex $arg 1] $line]
++        nb_putidx $idx [format "%-10.10s %-8.8s %s" $frombot [lindex $arg 1] $line]
+         set firstline 1
+       } else {
+-        putidx $idx [format "%-19s %s" "" $line]
++        nb_putidx $idx [format "%-19s %s" "" $line]
+       }
+     }
+   } elseif {[llength $arg] == 5} {
+-    foreach line [lindex $arg 4] {
++    foreach line [lrange [lindex $arg 4] 0 49] {
+       if {![info exists firstline]} {
+-        putidx $idx [format "%-10.10s %-10.10s %-6.6s %-8.8s %s" $frombot [lindex $arg 1] [lindex $arg 2] [lindex $arg 3] $line]
++        nb_putidx $idx [format "%-10.10s %-10.10s %-6.6s %-8.8s %s" $frombot [lindex $arg 1] [lindex $arg 2] [lindex $arg 3] $line]
+         set firstline 1
+       } else {
+-        putidx $idx [format "%-37s %s" "" $line]
++        nb_putidx $idx [format "%-37s %s" "" $line]
+       }
+     }
+   }
+@@ -593,27 +614,27 @@
+   if {![nb_checkowner $hand $idx]} {return 0}
+   putcmdlog "#$hand# netshell $arg"
+   if {[nb_control]} {
+-    catch {string trim [exec uptime]} uptime
+-    if {[info exists uptime]} {
+-      regsub -all -- "  " $uptime " " uptime
+-      putidx $idx "${botnet-nick} is on [info hostname] - [unames] - $uptime"
+-    }
++    putidx $idx "${botnet-nick} is on [info hostname] - [unames] - [nb_uptime]"
+   }
+   nb_sendcmd $nb_control netshell [list $hand $idx]
+   return 0
+ }
+ 
+-proc nb_netshell {frombot arg} {
+-  catch {string trim [exec uptime]} uptime
+-  if {[info exists uptime]} {
+-    regsub -all -- "  " $uptime " " uptime
+-    nb_sendcmd $frombot rnetshell [list [lindex $arg 1] [info hostname] [unames] $uptime]
++proc nb_uptime {} {
++  if {[catch {string trim [exec uptime]} uptime]} {
++    return "uptime unavailable"
+   }
++  regsub -all -- {\s+} $uptime " " uptime
++  return $uptime
++}
++
++proc nb_netshell {frombot arg} {
++  nb_sendcmd $frombot rnetshell [list [lindex $arg 1] [info hostname] [unames] [nb_uptime]]
+   return 0
+ }
+ 
+ proc nb_rnetshell {frombot arg} {
+-  putidx [lindex $arg 0] "$frombot is on [lindex $arg 1] - [lindex $arg 2] - [lindex $arg 3]"
++  nb_putidx [lindex $arg 0] "$frombot is on [lindex $arg 1] - [lindex $arg 2] - [lindex $arg 3]"
+   return 0
+ }
+ 
+@@ -652,16 +673,17 @@
+ }
+ 
+ proc nb_rnetserv {frombot arg} {
+-  if {[lindex $arg 1] != ""} {
+-    putidx [lindex $arg 0] [format "%-10.10s %-37.37s %s" $frombot [lindex $arg 1] [nb_duration [lindex $arg 2]]]
++  set online [lindex $arg 2]
++  if {[lindex $arg 1] != "" && [string is integer -strict $online]} {
++    nb_putidx [lindex $arg 0] [format "%-10.10s %-37.37s %s" $frombot [lindex $arg 1] [nb_duration $online]]
+   } else {
+-    putidx [lindex $arg 0] [format "%-10.10s %-37.37s" $frombot -]
++    nb_putidx [lindex $arg 0] [format "%-10.10s %-37.37s" $frombot -]
+   }
+   return 0
+ }
+ 
+ proc nb_dccnetpass {hand idx arg} {
+-  global botnet-nick nb_control nb_flag nb_key
++  global botnet-nick nb_control nb_flag
+   if {![nb_checkowner $hand $idx]} {return 0}
+   putcmdlog "#$hand# netpass"
+   set forhand [lindex [split $arg] 0] ; set thepass [lindex [split $arg] 1]
+@@ -671,7 +693,7 @@
+       return 0
+     }
+     putidx $idx "Generating new netbot password table.."
+-    set botlist [userlist $nb_flag]
++    set botlist [userlist $nb_flag] ; set passtbl ""
+     if {[lsearch -exact $botlist ${botnet-nick}] == -1} {
+       lappend botlist ${botnet-nick}
+     }
+@@ -683,16 +705,10 @@
+       }
+       set botlist $shakees
+     }
+-    set changed 0
+-    foreach entry $passtbl {
+-      if {[isbotnetnick [lindex $entry 0]]} {
+-        setuser [lindex $entry 1] PASS [lindex $entry 2]
+-        incr changed
+-      } elseif {[isbotnetnick [lindex $entry 1]]} {
+-        setuser [lindex $entry 0] PASS [lindex $entry 2]
+-        incr changed
+-      }
++    if {$passtbl == ""} {
++      putidx $idx "There are no other netbots." ; return 0
+     }
++    set changed [nb_applypasstbl $passtbl]
+     putidx $idx "Changed $changed netbot [nb_plural password passwords $changed]."
+     nb_sendcmd * netpass [list $hand $idx $passtbl]
+     putidx $idx "Password table distrubuted to all linked netbots."
+@@ -729,7 +745,6 @@
+ }
+ 
+ proc nb_netpass {frombot arg} {
+-  global nb_flag
+   set passtbl [lindex $arg 2] ; set forhand [lindex $arg 3]
+   if {$forhand == ""} {
+     if {$passtbl == "-check"} {
+@@ -745,30 +760,42 @@
+         nb_sendcmd $frombot rnetpass [list [lindex $arg 1]]
+       }
+     } else {
+-      set changed 0
+-      foreach entry $passtbl {
+-        if {[isbotnetnick [lindex $entry 0]]} {
+-          setuser [lindex $entry 1] PASS [lindex $entry 2]
+-          incr changed
+-        } elseif {[isbotnetnick [lindex $entry 1]]} {
+-          setuser [lindex $entry 0] PASS [lindex $entry 2]
+-          incr changed
+-        }
+-      }
++      set changed [nb_applypasstbl $passtbl]
+       putlog "netbots \[[lindex $arg 0]@$frombot\]: received new netbot password table, changed $changed netbot passwords."
+     }
+   } else {
++    if {![validuser $forhand] || $passtbl == ""} {return 0}
+     setuser $forhand PASS $passtbl
+     putlog "netbots \[[lindex $arg 0]@$frombot\]: changed password for $forhand."
+   }
+   return 0
+ }
+ 
++# Applies the entries of a netbot password table that involve this bot. Only
++# bot records are ever touched by a table.
++proc nb_applypasstbl {passtbl} {
++  set changed 0
++  foreach entry $passtbl {
++    if {[llength $entry] != 3 || [lindex $entry 2] == ""} {continue}
++    if {[isbotnetnick [lindex $entry 0]]} {
++      set target [lindex $entry 1]
++    } elseif {[isbotnetnick [lindex $entry 1]]} {
++      set target [lindex $entry 0]
++    } else {
++      continue
++    }
++    if {![validuser $target] || ![matchattr $target b]} {continue}
++    setuser $target PASS [lindex $entry 2]
++    incr changed
++  }
++  return $changed
++}
++
+ proc nb_rnetpass {frombot arg} {
+   if {[set nopass [lindex $arg 1]] != ""} {
+-    putidx [lindex $arg 0] "$frombot: [join $nopass ", "]"
++    nb_putidx [lindex $arg 0] "$frombot: [join $nopass ", "]"
+   } else {
+-    putidx [lindex $arg 0] "$frombot: all users have a password set."
++    nb_putidx [lindex $arg 0] "$frombot: all users have a password set."
+   }
+   return 0
+ }
+@@ -975,20 +1002,31 @@
+     putidx $idx "Usage: netjump <bot|-all> \[server\]" ; return 0
+   }
+   set bot [lindex [split $arg] 0] ; set server [lindex [split $arg] 1]
+-  if {$bot == "-all"} {
+-    nb_sendcmd $nb_control netjump [list $hand $server]
++  if {$bot == "-all" || [isbotnetnick $bot]} {
++    if {$bot == "-all"} {
++      nb_sendcmd $nb_control netjump [list $hand $server]
++      set local [nb_control]
++    } else {
++      set local 1
++    }
++    if {[info commands jump] == ""} {
++      set local 0
++    }
+     if {$server == ""} {
+       putidx $idx "Making netbots jump to next server."
+-      if {[nb_control]} {
++      if {$local} {
+         jump
+       }
+     } else {
+       putidx $idx "Making netbots jump to $server"
+-      if {[nb_control]} {
+-        eval jump [join [split $server :]]
++      if {$local} {
++        nb_jump $server
+       }
+     }
+   } else {
++    if {![islinked $bot]} {
++      putidx $idx "$bot is not linked." ; return 0
++    }
+     nb_sendcmd $bot netjump [list $hand $server]
+     if {$server == ""} {
+       putidx $idx "Making $bot jump to next server."
+@@ -1000,24 +1038,55 @@
+ }
+ 
+ proc nb_netjump {frombot arg} {
++  if {[info commands jump] == ""} {return 0}
+   set server [lindex $arg 1]
+   if {$server == ""} {
+     putlog "netbots \[[lindex $arg 0]@$frombot\]: jumping to next server."
+     jump
+   } else {
+     putlog "netbots \[[lindex $arg 0]@$frombot\]: jumping to $server"
+-    eval jump [join [split $server :]]
++    nb_jump $server
+   }
+   return 0
+ }
+ 
++# Jumps to a server given as host[:port[:pass]] without ever passing the
++# string through eval (which allowed [command] injection).
++proc nb_jump {server} {
++  global default-port
++  set parts [split $server :]
++  set host [lindex $parts 0] ; set port [lindex $parts 1]
++  set pass [join [lrange $parts 2 end] :]
++  if {$host == "" || [regexp -- {[\s\x00-\x1f]} $server]} {
++    putlog "netbots: refusing to jump to invalid server '$server'"
++    return 0
++  }
++  if {$port == ""} {
++    if {[info exists default-port]} {
++      set port ${default-port}
++    } else {
++      set port 6667
++    }
++  }
++  if {![regexp -- {^\+?[0-9]{1,5}$} $port]} {
++    putlog "netbots: refusing to jump to '$server' (invalid port)"
++    return 0
++  }
++  if {$pass != ""} {
++    jump $host $port $pass
++  } else {
++    jump $host $port
++  }
++  return 1
++}
++
+ proc nb_dccnetjoin {hand idx arg} {
+   global nb_control
+   if {![nb_checkowner $hand $idx]} {return 0}
+   putcmdlog "#$hand# netjoin $arg"
+   set chan [lindex [split $arg] 0] ; set key [lindex [split $arg] 1]
+-  if {$chan == "" || [string trim [string index $chan 0] "#+&!"] != ""} {
+-    putidx $idx "Usage: netjoin <channel>" ; return 0
++  if {![nb_ischan $chan]} {
++    putidx $idx "Usage: netjoin <channel> \[key\]" ; return 0
+   }
+   putidx $idx "Adding channel $chan to netbots."
+   nb_sendcmd $nb_control netjoin [list $hand $chan $key]
+@@ -1027,7 +1096,7 @@
+       if {[info commands bop_setneed] != ""} {
+         bop_setneed $chan
+       }
+-      if {$key != ""} {
++      if {$key != "" && [info commands putserv] != ""} {
+         putserv "JOIN $chan $key"
+       }
+     }
+@@ -1036,14 +1105,15 @@
+ }
+ 
+ proc nb_netjoin {frombot arg} {
+-  set chan [lindex $arg 1]
++  set chan [lindex $arg 1] ; set key [lindex $arg 2]
++  if {![nb_ischan $chan] || [regexp -- {[\s,]} $key]} {return 0}
+   putlog "netbots \[[lindex $arg 0]@$frombot\]: adding channel $chan"
+   if {![validchan $chan]} {
+     channel add $chan
+     if {[info commands bop_setneed] != ""} {
+       bop_setneed $chan
+     }
+-    if {[set key [lindex $arg 2]] != ""} {
++    if {$key != "" && [info commands putserv] != ""} {
+       putserv "JOIN $chan $key"
+     }
+   }
+@@ -1055,7 +1125,7 @@
+   if {![nb_checkowner $hand $idx]} {return 0}
+   putcmdlog "#$hand# netpart $arg"
+   set chan [lindex [split $arg] 0]
+-  if {$chan == "" || [string trim [string index $chan 0] "#+&!"] != ""} {
++  if {![nb_ischan $chan]} {
+     putidx $idx "Usage: netpart <channel>" ; return 0
+   }
+   putidx $idx "Removing channel $chan from netbots."
+@@ -1078,174 +1148,152 @@
+ }
+ 
+ proc nb_dccnetchanset {hand idx arg} {
+-  global config nb_control
++  global nb_control
+   if {![nb_checkowner $hand $idx]} {return 0}
+   putcmdlog "#$hand# netchanset $arg"
+   set chan [lindex [split $arg] 0]
+   if {$chan == "-reload"} {
+     putidx $idx "Making netbots reload channel settings from config file."
+     nb_sendcmd $nb_control netchanset [list $hand $chan]
+-    if {![file exists $config]} {
+-      putidx $idx "Error: unable to find file $config" ; return 0
+-    }
+-    set rfile [open $config r]
+-    while {![eof $rfile]} {
+-      set string [gets $rfile]
+-      if {[string match "channel set *" $string]} {
+-        eval $string
++    if {[nb_control]} {
++      if {[set err [nb_reloadchansets]] != ""} {
++        putidx $idx "Error: $err"
+       }
+     }
+-    close $rfile
+-    save
+     return 0
+   }
+-  if {(($chan == "") || (([string trim [string index $chan 0] "#+&!"] != "") && ($chan != "-all")))} {
+-    putidx $idx "Usage: netchanset <channel> \[settings\]" ; return 0
++  if {$chan == "" || (![nb_ischan $chan] && $chan != "-all")} {
++    putidx $idx "Usage: netchanset <channel|-all> \[settings\]" ; return 0
+   }
+   regsub -all -- \" [join [lrange [split $arg] 1 end]] "" settings
+   set settings [split $settings]
++  if {![nb_chansetok $settings]} {
++    putidx $idx "You cannot change need-op/invite/key/limit/unban settings." ; return 0
++  }
+   if {$settings == ""} {
+     if {$chan == "-all"} {
+       putidx $idx "Setting channel settings for all channels to config file default settings."
+     } else {
+       putidx $idx "Setting channel settings for $chan to config file default settings."
+     }
+-    nb_sendcmd $nb_control netchanset [list $hand $chan]
+-    if {[nb_control]} {
+-      if {$chan == "-all"} {
+-        foreach chan [channels] {
+-          nb_chanset $chan
+-        }
+-      } else {
+-        if {[validchan $chan]} {
+-          nb_chanset $chan
+-        }
+-      }
+-    }
++  } elseif {$chan == "-all"} {
++    putidx $idx "Setting channel settings for all channels to '$settings' on netbots."
+   } else {
+-    if {[string match "need-*" [lindex $settings 0]]} {
+-      putidx $idx "You cannot change need-op/invite/key/limit/unban settings." ; return 0
+-    }
+-    if {$chan == "-all"} {
+-      putidx $idx "Setting channel settings for all channels to '$settings' on netbots."
+-    } else {
+-      putidx $idx "Setting channel settings for $chan to '$settings' on netbots."
+-    }
+-    nb_sendcmd $nb_control netchanset [list $hand $chan $settings]
+-    if {[nb_control]} {
+-      if {$chan == "-all"} {
+-        if {[string index [lindex $settings 0] 0] == "+" || [string index [lindex $settings 0] 0] == "-"} {
+-          foreach chan [channels] {
+-            catch {eval channel set $chan $settings}
+-          }
+-        } else {
+-          foreach chan [channels] {
+-            catch {channel set $chan [lindex $settings 0] [lrange $settings 1 end]}
+-          }
+-        }
+-      } else {
+-        if {[validchan $chan]} {
+-          if {[string index [lindex $settings 0] 0] == "+" || [string index [lindex $settings 0] 0] == "-"} {
+-            catch {eval channel set $chan $settings}
+-          } else {
+-            catch {channel set $chan [lindex $settings 0] [lrange $settings 1 end]}
+-          }
+-        }
+-      }
+-    }
++    putidx $idx "Setting channel settings for $chan to '$settings' on netbots."
++  }
++  nb_sendcmd $nb_control netchanset [list $hand $chan $settings]
++  if {[nb_control]} {
++    nb_dochanset $chan $settings
+   }
+   return 0
+ }
+ 
+ proc nb_netchanset {frombot arg} {
+-  global config
+   set chan [lindex $arg 1]
+   if {$chan == "-reload"} {
+     putlog "netbots \[[lindex $arg 0]@$frombot\]: reloading channel settings from config file."
+-    if {![file exists $config]} {
+-      putlog "netbots: error - unable to find file $config" ; return 0
+-    }
+-    set rfile [open $config r]
+-    while {![eof $rfile]} {
+-      set string [gets $rfile]
+-      if {[string match "channel set *" $string]} {
+-        eval $string
+-      }
++    if {[set err [nb_reloadchansets]] != ""} {
++      putlog "netbots: error - $err"
+     }
+-    close $rfile
+-    save
+     return 0
+   }
++  if {![nb_ischan $chan] && $chan != "-all"} {return 0}
+   set settings [lindex $arg 2]
++  if {[catch {llength $settings}] || ![nb_chansetok $settings]} {
++    putlog "netbots \[[lindex $arg 0]@$frombot\]: rejected netchanset (need-* settings are not allowed)."
++    return 0
++  }
+   if {$settings == ""} {
+-    if {$chan == "-all"} {
+-      putlog "netbots \[[lindex $arg 0]@$frombot\]: setting channel settings for all channels to config file default settings."
+-      foreach chan [channels] {
+-        nb_chanset $chan
+-      }
+-    } else {
+-      putlog "netbots \[[lindex $arg 0]@$frombot\]: setting channel settings for $chan to config file default settings."
+-      if {[validchan $chan]} {
+-        nb_chanset $chan
+-      }
+-    }
++    putlog "netbots \[[lindex $arg 0]@$frombot\]: setting channel settings for $chan to config file default settings."
+   } else {
+-    if {[string match "need-*" [lindex $settings 0]]} {return 0}
+-    if {$chan == "-all"} {
+-      putlog "netbots \[[lindex $arg 0]@$frombot\]: setting channel settings for all channels to '$settings'."
+-      if {[string index [lindex $settings 0] 0] == "+" || [string index [lindex $settings 0] 0] == "-"} {
+-        foreach chan [channels] {
+-          catch {eval channel set $chan $settings}
+-        }
+-      } else {
+-        foreach chan [channels] {
+-          catch {channel set $chan [lindex $settings 0] [lrange $settings 1 end]}
+-        }
+-      }
++    putlog "netbots \[[lindex $arg 0]@$frombot\]: setting channel settings for $chan to '$settings'."
++  }
++  nb_dochanset $chan $settings
++  return 0
++}
++
++# need-* settings are Tcl scripts that eggdrop executes, so they must never be
++# settable through netchanset (that would bypass nb_nettcl).
++proc nb_chansetok {settings} {
++  foreach setting $settings {
++    if {[string match -nocase "need-*" $setting]} {return 0}
++  }
++  return 1
++}
++
++proc nb_dochanset {chan settings} {
++  if {$chan == "-all"} {
++    set chans [channels]
++  } elseif {[validchan $chan]} {
++    set chans [list $chan]
++  } else {
++    return 0
++  }
++  foreach chan $chans {
++    if {$settings == ""} {
++      catch {nb_chanset $chan}
++    } elseif {[string index [lindex $settings 0] 0] == "+" || [string index [lindex $settings 0] 0] == "-"} {
++      catch {eval [list channel set $chan] $settings}
+     } else {
+-      putlog "netbots \[[lindex $arg 0]@$frombot\]: setting channel settings for $chan to '$settings'."
+-      if {[validchan $chan]} {
+-        if {[string index [lindex $settings 0] 0] == "+" || [string index [lindex $settings 0] 0] == "-"} {
+-          catch {eval channel set $chan $settings}
+-        } else {
+-          catch {channel set $chan [lindex $settings 0] [lrange $settings 1 end]}
+-        }
+-      }
++      catch {channel set $chan [lindex $settings 0] [join [lrange $settings 1 end]]}
+     }
+   }
+   return 0
+ }
+ 
++# Re-applies 'channel set' lines from the config file. Each line is parsed as
++# a list and need-* settings are skipped; nothing is passed to eval as a
++# string. Returns "" on success or an error message.
++proc nb_reloadchansets {} {
++  global config
++  if {![file readable $config]} {
++    return "unable to read file $config"
++  }
++  if {[catch {open $config r} rfile]} {
++    return "unable to open $config: $rfile"
++  }
++  catch {
++    while {[gets $rfile line] >= 0} {
++      set line [string trim $line]
++      if {![string match "channel set *" $line]} {continue}
++      if {[catch {llength $line}] || [string first "\[" $line] != -1} {continue}
++      set chan [lindex $line 2] ; set settings [lrange $line 3 end]
++      if {![validchan $chan] || ![nb_chansetok $settings]} {continue}
++      catch {eval [list channel set $chan] $settings}
++    }
++  }
++  close $rfile
++  save
++  return ""
++}
++
+ proc nb_dccnettcl {hand idx arg} {
+-  global nb_control nb_tclarg nb_tclreturn
++  global nb_control
+   if {![nb_checkowner $hand $idx]} {return 0}
+   putcmdlog "#$hand# nettcl $arg"
+   if {$arg == ""} {
+     putidx $idx "Usage: nettcl <command>" ; return 0
+   }
+   putidx $idx "Executing command '$arg' on netbots."
+-  set nb_tclarg $arg
++  # send first, so commands like 'die' or 'restart' still reach the other bots
++  nb_sendcmd $nb_control nettcl [list $hand $idx $arg]
+   if {[nb_control]} {
+-    uplevel #0 {catch $nb_tclarg nb_tclreturn}
+-    putidx $idx "Tcl: $nb_tclreturn"
+-    unset nb_tclarg nb_tclreturn
++    catch {uplevel #0 $arg} result
++    putidx $idx "Tcl: $result"
+   }
+-  nb_sendcmd $nb_control nettcl [list $hand $idx $arg]
+   return 0
+ }
+ 
+ proc nb_nettcl {frombot arg} {
+-  global nb_tclcmd nb_tclreturn
+-  set nb_tclcmd [lindex $arg 2]
+-  putlog "netbots \[[lindex $arg 0]@$frombot\]: executing tcl command '$nb_tclcmd'."
+-  uplevel #0 {catch $nb_tclcmd nb_tclreturn}
+-  nb_sendcmd $frombot rnettcl [list [lindex $arg 1] $nb_tclreturn]
+-  unset nb_tclcmd nb_tclreturn
++  set cmd [lindex $arg 2]
++  putlog "netbots \[[lindex $arg 0]@$frombot\]: executing tcl command '$cmd'."
++  catch {uplevel #0 $cmd} result
++  nb_sendcmd $frombot rnettcl [list [lindex $arg 1] $result]
+   return 0
+ }
+ 
+ proc nb_rnettcl {frombot arg} {
+-  putidx [lindex $arg 0] "$frombot: Tcl: [lindex $arg 1]"
++  nb_putidx [lindex $arg 0] "$frombot: Tcl: [string range [lindex $arg 1] 0 2000]"
+   return 0
+ }
+ 
+@@ -1263,7 +1311,7 @@
+     "-everything" {set file "everything"}
+     "-changed" {set file "changed"}
+     "-file" {set file [lrange [split $arg] 1 end]}
+-    "default" {set file "settings/scripts"}
++    default {set file "settings/scripts"}
+   }
+   if {[string match -* $command]} {
+     if {$file == "settings/scripts"} {
+@@ -1272,30 +1320,31 @@
+     if {$command != "-file"} {
+       set bot [lindex [split $arg] 1]
+     } else {
+-      if {$arg == ""} {
++      if {$file == ""} {
+         putidx $idx "You must specify a file." ; return 0
+       }
+-      set bot ""
++      set bot "" ; set files ""
+       foreach filearg $file {
+-        if {[matchattr $filearg $nb_flag] || [islinked $filearg]} {
++        if {$filearg == ""} {continue}
++        if {[islinked $filearg] || ([validuser $filearg] && [matchattr $filearg b])} {
+           set bot $filearg ; break
+         }
+         if {[set globfiles [glob -nocomplain -- $filearg]] == ""} {
+           putidx $idx "No files matched by the pattern $filearg" ; continue
+-        } else {
+-          foreach globfile $globfiles {
+-            if {![file exists $globfile] || [file isdirectory $globfile]} {
+-              putidx $idx "File '$globfile' does not exist." ; continue
+-            }
++        }
++        foreach globfile $globfiles {
++          if {![file isfile $globfile] || ![file readable $globfile]} {
++            putidx $idx "File '$globfile' does not exist or is not readable." ; continue
++          }
++          if {[lsearch -exact $files $globfile] == -1} {
+             lappend files $globfile
+           }
+         }
+       }
+-      if {![info exists files]} {
++      if {$files == ""} {
+         putidx $idx "You must specify a file." ; return 0
+-      } else {
+-        set file $files
+       }
++      set file $files
+     }
+   } else {
+     set bot [lindex [split $arg] 0]
+@@ -1308,6 +1357,7 @@
+       putidx $idx "There are no linked bots." ; return 0
+     }
+     putidx $idx "Initiating transfer of $file to netbots.."
++    nb_offer * $file
+     nb_sendcmd $nb_control netupdate [list initiate $file $hand]
+   } else {
+     if {$nb_flag != "all" && ![matchattr $bot $nb_flag]} {
+@@ -1320,139 +1370,230 @@
+       putidx $idx "File transfer to $bot is already active." ; return 0
+     }
+     putidx $idx "Initiating transfer of $file to $bot.."
++    nb_offer $bot $file
+     nb_sendcmd $bot netupdate [list initiate $file $hand]
+   }
+   return 0
+ }
+ 
++# Remembers that we offered an update of type $file to $target ("*" or a
++# bot), so that "send" requests are only honoured for updates we initiated.
++proc nb_offer {target file} {
++  global nb_upinit
++  set nb_upinit([list [string tolower $target] $file]) [unixtime]
++  return
++}
++
++proc nb_offered {bot file} {
++  global nb_upinit
++  set now [unixtime]
++  foreach target [list * [string tolower $bot]] {
++    set key [list $target $file]
++    if {[info exists nb_upinit($key)] && $now - $nb_upinit($key) < 3600} {return 1}
++  }
++  return 0
++}
++
++# Returns the list of local files that make up an update type.
++proc nb_intfiles {file} {
++  global config motd nb_scripts nb_setscript telnet-banner
++  set banner ""
++  if {[info exists telnet-banner]} {
++    set banner ${telnet-banner}
++  }
++  switch -exact -- $file {
++    "config" {return [list $config]}
++    "motd" {return [list $motd]}
++    "telnet-banner" {return $banner}
++    "settings" {return [list $nb_setscript]}
++    "scripts" {return $nb_scripts}
++    "settings/scripts" {return [concat [list $nb_setscript] $nb_scripts]}
++    "changed" -
++    "everything" {return [concat [list $nb_setscript] $nb_scripts [list $config $motd] $banner]}
++  }
++  return $file
++}
++
++# Rejects empty names and any path containing a '..' component.
++proc nb_safepath {filename} {
++  if {$filename == "" || [regexp -- {[\x00-\x1f]} $filename]} {return 0}
++  foreach part [file split $filename] {
++    if {$part == ".."} {return 0}
++  }
++  return 1
++}
++
++proc nb_requestfiles {frombot file} {
++  global nb_expect
++  set files ""
++  set allowed ""
++  foreach intfile [nb_intfiles $file] {
++    if {![nb_safepath $intfile]} {
++      putlog "netbots: skipping unsafe file name '$intfile' in $file update."
++      continue
++    }
++    lappend files [list $intfile [nb_md5get $intfile]]
++    lappend allowed $intfile
++  }
++  set nb_expect([string tolower $frombot]) [list [unixtime] $file $allowed]
++  nb_sendcmd $frombot rnetupdate [list send $file $files]
++  return
++}
++
++proc nb_resetget {} {
++  global nb_files nb_getfrom nb_getfile nb_getting nb_lines nb_gotbytes
++  foreach var {nb_files nb_getfrom nb_getfile} {
++    if {[info exists $var]} {
++      unset $var
++    }
++  }
++  set nb_lines "" ; set nb_gotbytes 0
++  set nb_getting 0
++  return
++}
++
+ proc nb_netupdate {frombot arg} {
+-  global config motd nb_dir nb_files nb_getting nb_lines nb_netupdate nb_script nb_scripts nb_setscript nb_timeout telnet-banner
++  global config nb_expect nb_files nb_getfile nb_getfrom nb_getting nb_gotbytes nb_lines nb_maxbuffer nb_netupdate nb_script nb_timeout
++  set stlfrombot [string tolower $frombot]
+   switch -exact -- [lindex $arg 0] {
+     "initiate" {
+       if {$nb_getting} {return 0}
+       set file [lindex $arg 1] ; set hand [lindex $arg 2]
++      if {[catch {llength $file}] || $file == ""} {return 0}
+       if {$hand != ""} {
+         putlog "netbots \[$hand@$frombot\]: initiating $file update.."
+       } else {
+         putlog "netbots \[$frombot\]: initiating $file update.."
+       }
+-      switch -exact -- $file {
+-        "config" {set intfiles $config}
+-        "motd" {set intfiles $motd}
+-        "telnet-banner" {
+-          if {[info exists telnet-banner]} {
+-            set intfiles ${telnet-banner}
+-          }
+-        }
+-        "settings" {set intfiles $nb_setscript}
+-        "scripts" {set intfiles $nb_scripts}
+-        "settings/scripts" {set intfiles [concat $nb_setscript $nb_scripts]}
+-        "changed" -
+-        "everything" {
+-          if {[info exists telnet-banner]} {
+-            set intfiles [concat $nb_setscript $nb_scripts $config $motd ${telnet-banner}]
+-          } else {
+-            set intfiles [concat $nb_setscript $nb_scripts $config $motd]
+-          }
+-        }
+-        "default" {set intfiles $file}
+-      }
+-      foreach intfile $intfiles {
+-        lappend files [list $intfile [nb_md5get $intfile]]
+-      }
+-      nb_sendcmd $frombot rnetupdate [list send $file $files]
++      nb_requestfiles $frombot $file
+     }
+     "wait" {
+       if {$nb_getting} {return 0}
+       set file [lindex $arg 1]
++      if {![info exists nb_expect($stlfrombot)] || [lindex $nb_expect($stlfrombot) 1] != $file} {return 0}
+       putlog "netbots: $frombot is busy, waiting to try again.."
+-      set nb_getting 1
++      set nb_getting 1 ; set nb_getfrom $stlfrombot
+       switch -exact -- $file {
+         "scripts" -
+         "settings/scripts" {
+-          utimer [expr 20 + [rand 21]] [list nb_wait $frombot $file]
++          utimer [expr {20 + [rand 21]}] [list nb_wait $frombot $file]
+         }
+         "everything" {
+-          utimer [expr 20 + [rand 31]] [list nb_wait $frombot $file]
++          utimer [expr {20 + [rand 31]}] [list nb_wait $frombot $file]
+         }
+-        "default" {
+-          utimer [expr 10 + [rand 11]] [list nb_wait $frombot $file]
++        default {
++          utimer [expr {10 + [rand 11]}] [list nb_wait $frombot $file]
+         }
+       }
+     }
+     "start" {
+       if {$nb_getting} {return 0}
+       set file [lindex $arg 1]
+-      set nb_getting 1
++      if {![info exists nb_expect($stlfrombot)] || [lindex $nb_expect($stlfrombot) 1] != $file} {
++        putlog "netbots: ignoring unrequested file transfer from $frombot."
++        return 0
++      }
++      nb_resetget
++      set nb_getting 1 ; set nb_getfrom $stlfrombot ; set nb_getfile $file
+       putlog "netbots: downloading $file from $frombot"
+       utimer $nb_timeout [list nb_timeout getting $frombot $file]
+-      set nb_lines ""
+     }
+     "write" {
++      if {!$nb_getting || ![info exists nb_getfrom] || $nb_getfrom != $stlfrombot} {return 0}
+       set nb_lines [lindex $arg 1]
+     }
+     "close" {
+-      if {!$nb_getting} {return 0}
+-      set filename [lindex $arg 1]
+-      lappend nb_files [list $filename [file tail $filename].tmp [lindex $arg 2] $nb_lines]
++      if {!$nb_getting || ![info exists nb_getfrom] || $nb_getfrom != $stlfrombot} {return 0}
++      set filename [lindex $arg 1] ; set size [lindex $arg 2]
++      set allowed [lindex $nb_expect($stlfrombot) 2]
++      if {[lsearch -exact $allowed $filename] == -1 || ![nb_safepath $filename] || ![string is integer -strict $size]} {
++        putlog "netbots: rejected unexpected file '$filename' from $frombot."
++        set nb_lines ""
++        return 0
++      }
++      incr nb_gotbytes [string length $nb_lines]
++      if {$nb_gotbytes > $nb_maxbuffer} {
++        putlog "netbots: error on download from $frombot - transfer exceeds $nb_maxbuffer bytes."
++        nb_sendcmd $frombot rnetupdate [list fserror $nb_getfile]
++        nb_killutimer "nb_timeout getting $frombot *"
++        nb_resetget
++        return 0
++      }
++      if {[info exists nb_files]} {
++        foreach filepack $nb_files {
++          if {[lindex $filepack 0] == $filename} {
++            set nb_lines "" ; return 0
++          }
++        }
++      }
++      lappend nb_files [list $filename $filename.nbtmp $size $nb_lines]
+       set nb_lines ""
+     }
+     "end" {
+-      if {!$nb_getting} {return 0}
++      if {!$nb_getting || ![info exists nb_getfrom] || $nb_getfrom != $stlfrombot} {return 0}
+       set file [lindex $arg 1]
++      if {[info exists nb_expect($stlfrombot)]} {
++        unset nb_expect($stlfrombot)
++      }
++      nb_killutimer "nb_timeout getting $frombot *"
+       if {![info exists nb_files]} {
+         putlog "netbots: no files need to be downloaded."
+         nb_sendcmd $frombot rnetupdate [list nofiles $file]
+-        nb_killutimer "nb_timeout getting $frombot *"
+-        set nb_getting 0
++        nb_resetget
+         return 0
+       }
+-      foreach filepack $nb_files {
+-        set tmpfile [lindex $filepack 1]
+-        lappend tmplist $tmpfile
+-        set wfile [open $tmpfile w]
+-        fconfigure $wfile -translation binary
+-        puts -nonewline $wfile [lindex $filepack 3]
+-        close $wfile
+-      }
+-      foreach filepack $nb_files {
++      set filepacks $nb_files
++      # create directories first so temporary files live next to their targets
++      foreach filepack $filepacks {
+         set filename [lindex $filepack 0]
+-        set chksize [lindex $filepack 2]
+-        if {[catch {file size [lindex $filepack 1]} filesize]} {
+-          set filesize 0
++        if {[set dir [file dirname $filename]] != "." && ![file isdirectory $dir]} {
++          if {[file exists $dir] || [catch {file mkdir $dir}]} {
++            putlog "netbots: error on $file download from $frombot - unable to create directory '$dir'."
++            nb_sendcmd $frombot rnetupdate [list direrror $file]
++            nb_resetget
++            return 0
++          }
++          putlog "netbots: created directory '$dir'."
+         }
+-        if {$filesize != $chksize || $chksize == 0} {
++      }
++      set tmplist ""
++      foreach filepack $filepacks {
++        set filename [lindex $filepack 0] ; set tmpfile [lindex $filepack 1] ; set chksize [lindex $filepack 2]
++        lappend tmplist $tmpfile
++        if {[catch {
++          set wfile [open $tmpfile w 0600]
++          fconfigure $wfile -translation binary
++          puts -nonewline $wfile [lindex $filepack 3]
++          close $wfile
++        } err]} {
++          catch {close $wfile}
++          putlog "netbots: error on $file download from $frombot - cannot write '$tmpfile': $err"
++          set filesize -1
++        } elseif {[catch {file size $tmpfile} filesize]} {
++          set filesize -1
++        }
++        if {$filesize != $chksize} {
+           putlog "netbots: error on $file download from $frombot - filesize mismatch for $filename (expected $chksize bytes, got $filesize [nb_plural byte bytes $filesize])."
+           nb_sendcmd $frombot rnetupdate [list fserror $file]
+-          nb_killutimer "nb_timeout getting $frombot *"
+-          eval file delete -- [join $tmplist]
+-          unset nb_files
+-          set nb_getting 0
+-          return 0
+-        }
+-        if {[set dir [file dirname $filename]] != "."} {
+-          if {![file exists $dir]} {
+-            putlog "netbots: creating directory '$dir'.."
+-            file mkdir $dir
+-          } elseif {![file isdirectory $dir]} {
+-            putlog "netbots: error on $file download from $frombot - '$dir' exists but is not a directory."
+-            nb_sendcmd $frombot rnetupdate [list direrror $file]
+-            nb_killutimer "nb_timeout getting $frombot *"
+-            eval file delete -- [join $tmplist]
+-            unset nb_files
+-            set nb_getting 0
+-            return 0
++          foreach tmpfile $tmplist {
++            catch {file delete -- $tmpfile}
+           }
++          nb_resetget
++          return 0
+         }
+       }
+       set downloaded 0
+-      foreach filepack $nb_files {
++      foreach filepack $filepacks {
+         set filename [lindex $filepack 0]
+-        file rename -force -- [lindex $filepack 1] $filename
++        if {[catch {file rename -force -- [lindex $filepack 1] $filename} err]} {
++          putlog "netbots: error - unable to replace '$filename': $err"
++          catch {file delete -- [lindex $filepack 1]}
++          continue
++        }
+         if {$filename == $config} {
+-          catch {exec chmod 700 $filename}
++          catch {file attributes $filename -permissions 0700}
+         } else {
+-          catch {exec chmod 600 $filename}
++          catch {file attributes $filename -permissions 0600}
+         }
+         if {$nb_netupdate == 2} {
+           if {[catch {file mtime $filename} filemtime]} {
+@@ -1462,25 +1603,32 @@
+         }
+         incr downloaded
+       }
+-      nb_killutimer "nb_timeout getting $frombot *"
+       unset nb_files
++      set nb_lines "" ; set nb_gotbytes 0
+       nb_sendcmd $frombot rnetupdate [list end $file]
+       if {$file == "config" || $file == "changed" || $file == "everything"} {
+         putlog "netbots: $file download complete (updated $downloaded [nb_plural file files $downloaded]), rehashing.."
+         utimer 3 rehash
+-        utimer 5 {set nb_getting 0}
++        utimer 5 nb_resetget
+       } elseif {$file == "settings" || $file == "scripts" || $file == "settings/scripts"} {
+         # more efficient than rehashing, but use of nb_component outside netset.tcl will fail
+         putlog "netbots: $file download complete (updated $downloaded [nb_plural file files $downloaded]), resourcing.."
+         utimer 3 [list source $nb_script]
+-        utimer 5 {set nb_getting 0}
++        utimer 5 nb_resetget
+       } else {
+         putlog "netbots: $file download complete (updated $downloaded [nb_plural file files $downloaded])."
+-        set nb_getting 0
++        nb_resetget
+       }
+     }
+     "ferror" {
+-      putlog "netbots: error - $frombot cannot find file '[lindex $arg 1]'."
++      putlog "netbots: error - $frombot cannot send file '[lindex $arg 1]'."
++      if {$nb_getting && [info exists nb_getfrom] && $nb_getfrom == $stlfrombot} {
++        nb_killutimer "nb_timeout getting $frombot *"
++        nb_resetget
++      }
++      if {[info exists nb_expect($stlfrombot)]} {
++        unset nb_expect($stlfrombot)
++      }
+     }
+   }
+   return 0
+@@ -1489,23 +1637,24 @@
+ proc nb_rnetupdate {frombot arg} {
+   global nb_max nb_netupdate nb_sending nb_timeout
+   set file [lindex $arg 1]
++  set stlfrombot [string tolower $frombot]
+   switch -exact -- [lindex $arg 0] {
+-    "initiate" {
+-      if {[info exists nb_sending([string tolower $frombot])]} {return 0}
+-      nb_sendcmd $frombot netupdate [list initiate $file]
+-    }
+     "send" {
+       set filenames [lindex $arg 2]
+-      set stlfrombot [string tolower $frombot]
+       if {[info exists nb_sending($stlfrombot)]} {return 0}
++      if {![nb_offered $frombot $file]} {
++        putlog "netbots: refused file request from $frombot (no update was initiated for it)."
++        return 0
++      }
++      if {[catch {llength $filenames}] || [llength $filenames] > 500} {return 0}
+       if {[llength [array names nb_sending]] >= $nb_max} {
+         nb_sendcmd $frombot netupdate [list wait $file]
+         return 0
+       }
+       foreach filename $filenames {
+         set filename [lindex $filename 0]
+-        if {![file exists $filename]} {
+-          putlog "netbots: error - cannot find file '$filename' (requested by $frombot)."
++        if {![nb_safepath $filename] || ![file isfile $filename] || ![file readable $filename]} {
++          putlog "netbots: error - cannot send file '$filename' (requested by $frombot)."
+           nb_sendcmd $frombot netupdate [list ferror $filename]
+           return 0
+         }
+@@ -1518,61 +1667,50 @@
+       foreach filename $filenames {
+         set filenamemd5 [lindex $filename 1]
+         set filename [lindex $filename 0]
+-        if {$filenamemd5 != 0 && $filenamemd5 == [nb_md5get $filename]} {
++        if {![string equal $filenamemd5 0] && [string equal $filenamemd5 [nb_md5get $filename]]} {
+           continue
+         }
+         if {[catch {file mtime $filename} filemtime]} {
+           set filemtime 0
+         }
+-        if {$file == "changed" && [expr $clockseconds - $filemtime] >= 86400} {
++        if {$file == "changed" && $clockseconds - $filemtime >= 86400} {
+           continue
+         }
+-        set rfile [open $filename r]
+-        fconfigure $rfile -translation binary
+-        set fstring [read $rfile]
+-        close $rfile
++        if {[catch {
++          set rfile [open $filename r]
++          fconfigure $rfile -translation binary
++          set fstring [read $rfile]
++          close $rfile
++        } err]} {
++          catch {close $rfile}
++          putlog "netbots: error - cannot read '$filename' for $frombot: $err"
++          nb_sendcmd $frombot netupdate [list ferror $filename]
++          nb_killutimer "nb_timeout sending $frombot *"
++          unset nb_sending($stlfrombot)
++          return 0
++        }
+         if {$nb_netupdate == 2} {
+           nb_md5write $filename $filemtime [md5 $fstring]
+         }
+         nb_sendcmd $frombot netupdate [list write $fstring]
+-        if {[catch {file size $filename} filesize]} {
+-          set filesize 0
+-        }
+-        nb_sendcmd $frombot netupdate [list close $filename $filesize]
++        nb_sendcmd $frombot netupdate [list close $filename [string length $fstring]]
++        unset fstring
+       }
+       nb_sendcmd $frombot netupdate [list end $file]
+     }
+-    "end" {
+-      set stlfrombot [string tolower $frombot]
+-      nb_killutimer "nb_timeout sending $frombot *"
+-      if {[info exists nb_sending($stlfrombot)]} {
+-        unset nb_sending($stlfrombot)
+-      }
+-      putlog "netbots: completed $file transfer to $frombot"
+-    }
+-    "fserror" {
+-      set stlfrombot [string tolower $frombot]
+-      nb_killutimer "nb_timeout sending $frombot *"
+-      if {[info exists nb_sending($stlfrombot)]} {
+-        unset nb_sending($stlfrombot)
+-      }
+-      putlog "netbots: error on $file transfer to $frombot - filesize mismatch."
+-    }
+-    "direrror" {
+-      set stlfrombot [string tolower $frombot]
+-      nb_killutimer "nb_timeout sending $frombot *"
+-      if {[info exists nb_sending($stlfrombot)]} {
+-        unset nb_sending($stlfrombot)
+-      }
+-      putlog "netbots: error on $file transfer to $frombot - $frombot is unable to create directory."
+-    }
++    "end" -
++    "fserror" -
++    "direrror" -
+     "nofiles" {
+-      set stlfrombot [string tolower $frombot]
++      if {![info exists nb_sending($stlfrombot)]} {return 0}
+       nb_killutimer "nb_timeout sending $frombot *"
+-      if {[info exists nb_sending($stlfrombot)]} {
+-        unset nb_sending($stlfrombot)
++      unset nb_sending($stlfrombot)
++      switch -exact -- [lindex $arg 0] {
++        "end" {putlog "netbots: completed $file transfer to $frombot"}
++        "fserror" {putlog "netbots: error on $file transfer to $frombot - filesize mismatch or transfer too large."}
++        "direrror" {putlog "netbots: error on $file transfer to $frombot - $frombot is unable to create directory."}
++        "nofiles" {putlog "netbots: no files need to be sent to $frombot"}
+       }
+-      putlog "netbots: no files need to be sent to $frombot"
+     }
+   }
+   return 0
+@@ -1581,93 +1719,66 @@
+ proc nb_md5write {file mtime md5sum} {
+   global nb_dir nb_md5
+   set nb_md5($file) [list $mtime $md5sum]
+-  set wfile [open $nb_dir/nbmd5 w]
+-  foreach filename [array names nb_md5] {
+-    puts $wfile [list $filename [lindex $nb_md5($filename) 0] [lindex $nb_md5($filename) 1]]
++  if {[catch {
++    set wfile [open $nb_dir/nbmd5 w 0600]
++    foreach filename [array names nb_md5] {
++      puts $wfile [list $filename [lindex $nb_md5($filename) 0] [lindex $nb_md5($filename) 1]]
++    }
++    close $wfile
++  } err]} {
++    catch {close $wfile}
++    putlog "netbots: unable to write $nb_dir/nbmd5: $err"
+   }
+-  close $wfile
+   return
+ }
+ 
+ proc nb_md5get {file} {
+-  global nb_md5
+-  if {[info exists nb_md5($file)] && [set md5time [lindex $nb_md5($file) 0]] && ![catch {file mtime $file} filemtime] && $md5time == $filemtime} {
+-    return [lindex $nb_md5($file) 1]
+-  }
+-  return 0
++  global nb_md5 nb_netupdate
++  if {$nb_netupdate != 2 || ![info exists nb_md5($file)]} {return 0}
++  set md5time [lindex $nb_md5($file) 0]
++  if {![string is integer -strict $md5time] || !$md5time} {return 0}
++  if {[catch {file mtime $file} filemtime] || $md5time != $filemtime} {return 0}
++  return [lindex $nb_md5($file) 1]
+ }
+ 
+ proc nb_md5load {} {
+   global nb_dir nb_md5
+-  if {[file readable $nb_dir/nbmd5]} {
+-    set file [open $nb_dir/nbmd5 r]
+-    set lines [split [read -nonewline $file] \n]
+-    close $file
+-    foreach line $lines {
+-      if {[llength $line] == 3} {
+-        set nb_md5([lindex $line 0]) [list [lindex $line 1] [lindex $line 2]]
+-      }
++  if {![file readable $nb_dir/nbmd5] || [catch {open $nb_dir/nbmd5 r} file]} {return}
++  set lines [split [read -nonewline $file] \n]
++  close $file
++  foreach line $lines {
++    if {![catch {llength $line} len] && $len == 3 && [file exists [lindex $line 0]]} {
++      set nb_md5([lindex $line 0]) [list [lindex $line 1] [lindex $line 2]]
+     }
+   }
+   return
+ }
+ 
+-if {$nb_netupdate != 2} {
+-  proc nb_md5get {file} {
+-    return 0
+-  }
+-  rename nb_md5write ""
+-  rename nb_md5load ""
+-}
+-
+ proc nb_wait {frombot file} {
+-  global config motd nb_getting nb_scripts nb_setscript telnet-banner
++  global nb_getfrom nb_getting
++  if {!$nb_getting || ![info exists nb_getfrom] || $nb_getfrom != [string tolower $frombot]} {return 0}
+   set nb_getting 0
+-  switch -exact -- $file {
+-    "config" {set intfiles $config}
+-    "motd" {set intfiles $motd}
+-    "telnet-banner" {
+-      if {[info exists telnet-banner]} {
+-        set intfiles ${telnet-banner}
+-      }
+-    }
+-    "settings" {set intfiles $nb_setscript}
+-    "scripts" {set intfiles $nb_scripts}
+-    "settings/scripts" {set intfiles [concat $nb_setscript $nb_scripts]}
+-    "changed" -
+-    "everything" {
+-      if {[info exists telnet-banner]} {
+-        set intfiles [concat $nb_setscript $nb_scripts $config $motd ${telnet-banner}]
+-      } else {
+-        set intfiles [concat $nb_setscript $nb_scripts $config $motd]
+-      }
+-    }
+-    "default" {set intfiles $file}
+-  }
+-  foreach intfile $intfiles {
+-    lappend files [list $intfile [nb_md5get $intfile]]
+-  }
+-  nb_sendcmd $frombot rnetupdate [list send $file $files]
++  unset nb_getfrom
++  if {![islinked $frombot]} {return 0}
++  nb_requestfiles $frombot $file
+   return 0
+ }
+ 
+ proc nb_timeout {action bot file} {
+-  global nb_files nb_getting nb_lines nb_sending
++  global nb_expect nb_sending
++  set stlbot [string tolower $bot]
+   switch -exact -- $action {
+     "getting" {
+       putlog "netbots: timed out $file download from $bot"
+-      if {[info exists nb_lines]} {
+-        unset nb_lines
+-      }
+-      if {[info exists nb_files]} {
+-        unset nb_files
++      nb_resetget
++      if {[info exists nb_expect($stlbot)]} {
++        unset nb_expect($stlbot)
+       }
+-      set nb_getting 0
+     }
+     "sending" {
+       putlog "netbots: timed out $file transfer to $bot"
+-      if {[info exists nb_sending([string tolower $bot])]} {
+-        unset nb_sending([string tolower $bot])
++      if {[info exists nb_sending($stlbot)]} {
++        unset nb_sending($stlbot)
+       }
+     }
+   }
+@@ -1723,57 +1834,61 @@
+     putlog "netbots: error - update check cannot find package 'http' (you should probably disable nb_update on this bot)."
+     return 0
+   }
++  set recipients ""
+   foreach recipient [split $nb_update] {
+     if {[validuser $recipient]} {
+       lappend recipients $recipient
+     }
+   }
+-  if {![info exists recipients]} {
++  if {$recipients == ""} {
+     putlog "netbots: error - update check recipients '$nb_update' are invalid."
+     return 0
+   }
+   set unumver $nb_numver
+-  if {[file exists $nb_dir/nbupdate]} {
+-    set rfile [open $nb_dir/nbupdate r]
++  if {[file exists $nb_dir/nbupdate] && ![catch {open $nb_dir/nbupdate r} rfile]} {
+     set lines [split [read $rfile] \n]
+     close $rfile
+-    if {![string is integer -strict [lindex $lines 1]]} {
+-      putlog "netbots: error - update check file $nb_dir/nbupdate is corrupt (try deleting it)."
++    set lastcheck [lindex $lines 0] ; set lastver [lindex $lines 1]
++    if {![string is integer -strict $lastcheck] || ![string is integer -strict $lastver]} {
++      putlog "netbots: update check file $nb_dir/nbupdate is corrupt, recreating it."
++    } elseif {[unixtime] - $lastcheck < 590400} {
++      # checked within the last week
+       return 0
+-    } else {
+-      if {[expr [unixtime] - [lindex $lines 0]] < 93600} {
+-        return 0
+-      } elseif {[lindex $lines 1] > $nb_numver} {
+-        set unumver [lindex $lines 1]
+-      }
++    } elseif {$lastver > $nb_numver} {
++      set unumver $lastver
+     }
+   }
+-  if {[catch {::http::geturl http://www.egghelp.org/netbots/nbupdate3.txt} token]} {
++  if {[catch {::http::geturl http://www.egghelp.org/netbots/nbupdate3.txt -timeout 10000} token]} {
+     return 0
+   }
+-  set hlines [split [::http::data $token] \n]
+-  unset $token
+-  if {[lindex $hlines 2] != "eof"} {
++  set ok [expr {[::http::status $token] == "ok" && [::http::ncode $token] == 200}]
++  set data [::http::data $token]
++  ::http::cleanup $token
++  if {!$ok} {return 0}
++  set hlines [split [string map {"\r" ""} $data] \n]
++  set hnumver [string trim [lindex $hlines 0]]
++  if {[string trim [lindex $hlines 2]] != "eof" || ![string is integer -strict $hnumver]} {
+     return 0
+   }
+-  set hnumver [lindex $hlines 0]
+   if {$hnumver > $unumver} {
+     foreach recipient $recipients {
+-      sendnote NETBOTS $recipient [lindex $hlines 1]
++      sendnote NETBOTS $recipient [string range [lindex $hlines 1] 0 300]
+     }
+   }
+-  set wfile [open $nb_dir/nbupdate w]
+-  puts -nonewline $wfile "[unixtime]\n$hnumver"
+-  close $wfile
++  if {![catch {open $nb_dir/nbupdate w 0600} wfile]} {
++    puts -nonewline $wfile "[unixtime]\n$hnumver"
++    close $wfile
++  }
+   return 0
+ }
+ 
+ proc nb_chon {hand idx} {
+-  global botnet-nick nb_chon nb_control nb_defctrl nb_flag nb_ver
++  global botnet-nick nb_chon nb_control nb_ctrlidx nb_defctrl nb_flag nb_ver
++  set nb_ctrlidx($idx) $nb_defctrl
+   set nb_control $nb_defctrl
+   if {$nb_chon} {
+     if {[matchattr $hand mnt]} {
+-      set bots [expr [llength [bots]] + 1]
++      set bots [expr {[llength [bots]] + 1}]
+       putidx $idx " "
+       putidx $idx "Running netbots.tcl $nb_ver"
+       putidx $idx "  $bots [nb_plural bot bots $bots] on the botnet."
+@@ -1788,15 +1903,11 @@
+             lappend offline $netbot
+           }
+         }
+-        if {$botlist == ""} {
+-          putidx $idx "  No netbots linked."
++        set bots [llength $botlist]
++        if {$offline != ""} {
++          putidx $idx "  $bots [nb_plural netbot netbots $bots] ([llength $offline] offline or not linked: [join $offline ", "])."
+         } else {
+-          set bots [llength $botlist]
+-          if {$offline != ""} {
+-            putidx $idx "  $bots [nb_plural netbot netbots $bots] ([llength $offline] offline or not linked: [join $offline ", "])."
+-          } else {
+-            putidx $idx "  $bots [nb_plural netbot netbots $bots] (all netbots online and linked)."
+-          }
++          putidx $idx "  $bots [nb_plural netbot netbots $bots] (all netbots online and linked)."
+         }
+       }
+     }
+@@ -1808,21 +1919,39 @@
+     }
+     if {$partylist == ""} {
+       putidx $idx "There are no other users on the bot or party line."
+-      putidx $idx " "
+     } else {
+       putidx $idx "Other users on the bot and party line: [join $partylist ", "]"
+-      putidx $idx " "
+     }
++    putidx $idx " "
+     nb_sendcmd * rbroadcast "$hand has logged in."
+   }
+   return 0
+ }
+ 
+ proc nb_chof {hand idx} {
+-  nb_sendcmd * rbroadcast "$hand has logged out."
++  global nb_chon nb_ctrlidx
++  if {[info exists nb_ctrlidx($idx)]} {
++    unset nb_ctrlidx($idx)
++  }
++  if {$nb_chon} {
++    nb_sendcmd * rbroadcast "$hand has logged out."
++  }
+   return 0
+ }
+ 
++# Each partyline user keeps their own .netcontrol selection. This filter runs
++# before every partyline command and loads that user's selection into
++# nb_control, which all netbot commands (including components) use.
++proc nb_filtctrl {idx text} {
++  global nb_control nb_ctrlidx nb_defctrl
++  if {[info exists nb_ctrlidx($idx)]} {
++    set nb_control $nb_ctrlidx($idx)
++  } else {
++    set nb_control $nb_defctrl
++  }
++  return $text
++}
++
+ proc nb_sighup {type} {
+   nb_sendcmd * rbroadcast "Received SIGHUP!" ; return 0
+ }
+@@ -1837,9 +1966,12 @@
+ 
+ proc nb_svconnect {from keyword arg} {
+   global nb_realserver
+-  set nb_realserver $from
+-  if {$nb_realserver == ""} {
+-    unset nb_realserver
++  if {$from == ""} {
++    if {[info exists nb_realserver]} {
++      unset nb_realserver
++    }
++  } else {
++    set nb_realserver $from
+   }
+   nb_sendcmd * rbroadcast "Connected to $from" ; return 0
+ }
+@@ -1853,7 +1985,8 @@
+     } elseif {![string match ".*" $cmd]} {
+       return $text
+     }
+-    if {[lsearch -exact $nb_castfilter $cmd] != -1} {
++    # commands whose arguments may contain passwords or keys are never broadcast in full
++    if {[lsearch -exact $nb_castfilter $cmd] != -1 || [lsearch -exact {.chpass .newpass .netpass .pass .tcl .nettcl .set .chaddr} $cmd] != -1} {
+       nb_sendcmd * rbroadcast "#$hand# [string trimleft [lindex [split $text] 0] "."] .."
+     } else {
+       nb_sendcmd * rbroadcast "#$hand# [string trimleft [string range $text 0 399] "."]"
+@@ -1865,12 +1998,11 @@
+ proc nb_broadcast {frombot arg} {
+   global nb_broadcast
+   if {$nb_broadcast == ""} {return 0}
+-  foreach dccuser [dcclist] {
+-    if {[lindex $dccuser 3] == "CHAT"} {
+-      set idx [lindex $dccuser 0]
+-      if {[matchattr [idx2hand $idx] $nb_broadcast]} {
+-        putidx $idx "\[$frombot\]: $arg"
+-      }
++  set arg [string map {"\r" "" "\n" " "} [string range $arg 0 450]]
++  foreach dccuser [dcclist CHAT] {
++    set idx [lindex $dccuser 0]
++    if {[matchattr [idx2hand $idx] $nb_broadcast]} {
++      putidx $idx "\[$frombot\]: $arg"
+     }
+   }
+   return 0
+@@ -1884,76 +2016,90 @@
+ 
+ proc nb_sendcmd {to cmd arg} {
+   global botnet-nick nb_flag nb_key
++  if {$nb_key == ""} {return 0}
+   set key [encrypt $nb_key [list ${botnet-nick} $cmd $arg]]
++  set skey ""
+   while {$key != ""} {
+     lappend skey [string range $key 0 390]
+     set key [string range $key 391 end]
+   }
+   if {$to == "*"} {
+     if {$nb_flag == "all"} {
+-      if {[llength $skey] > 1} {
+-        set sid [expr [rand 999] + 1]
+-        foreach key $skey {
+-          putallbots "nb [list $sid $key]"
+-        }
+-        putallbots "nb $sid"
+-      } else {
+-        putallbots "nb [list 0 $skey]"
+-      }
++      set targets "*"
+     } else {
++      set targets ""
+       foreach bot [userlist $nb_flag] {
+         if {[islinked $bot]} {
+-          if {[llength $skey] > 1} {
+-            set sid [expr [rand 999] + 1]
+-            foreach key $skey {
+-              putbot $bot "nb [list $sid $key]"
+-            }
+-            putbot $bot "nb $sid"
+-          } else {
+-            putbot $bot "nb [list 0 $skey]"
+-          }
++          lappend targets $bot
+         }
+       }
+     }
+   } else {
++    set targets ""
+     foreach bot [split $to ,] {
+-      if {[islinked $bot]} {
+-        if {[llength $skey] > 1} {
+-          set sid [expr [rand 999] + 1]
+-          foreach key $skey {
+-            putbot $bot "nb [list $sid $key]"
+-          }
+-          putbot $bot "nb $sid"
+-        } else {
+-          putbot $bot "nb [list 0 $skey]"
+-        }
++      if {$bot != "" && [islinked $bot]} {
++        lappend targets $bot
++      }
++    }
++  }
++  foreach bot $targets {
++    if {[llength $skey] > 1} {
++      set sid [expr {[rand 999] + 1}]
++      foreach key $skey {
++        nb_putbot $bot "nb [list $sid $key]"
+       }
++      nb_putbot $bot "nb $sid"
++    } else {
++      nb_putbot $bot "nb [list 0 [lindex $skey 0]]"
+     }
+   }
+   return 0
+ }
+ 
++proc nb_putbot {bot text} {
++  if {$bot == "*"} {
++    putallbots $text
++  } else {
++    putbot $bot $text
++  }
++  return
++}
++
+ proc nb_gotcmd {frombot cmd arg} {
+-  global nb_ctrlbot nb_ctrlbots nb_flag nb_gbuffer nb_key nb_netcmds nb_nettcl nb_netupdate
++  global nb_ctrlbot nb_ctrlbots nb_flag nb_gbdrop nb_gbuffer nb_gbtime nb_key nb_maxbuffer nb_netcmds nb_nettcl nb_netupdate
++  if {$nb_key == ""} {return 0}
+   if {$nb_flag != "all" && ![matchattr $frombot $nb_flag]} {return 0}
+-  if {[catch {llength $arg}]} {
++  if {[catch {llength $arg} len] || $len < 1 || $len > 2 || ![string is integer -strict [set sid [lindex $arg 0]]] || $sid < 0 || $sid > 999} {
+     putlog "netbots: rejected command from $frombot (malformed data)." ; return 0
+   }
+-  if {[set sid [lindex $arg 0]]} {
+-    set skey [lindex $arg 1]
+-    if {$skey != ""} {
+-      append nb_gbuffer($sid) $skey
++  if {$sid} {
++    # multi-part message: buffers are kept per sending bot so that two bots
++    # using the same random sid can't corrupt each other's data
++    set bkey "[string tolower $frombot],$sid"
++    if {$len == 2} {
++      if {[info exists nb_gbdrop($bkey)]} {return 0}
++      append nb_gbuffer($bkey) [lindex $arg 1]
++      set nb_gbtime($bkey) [unixtime]
++      if {[string length $nb_gbuffer($bkey)] > 2 * $nb_maxbuffer} {
++        putlog "netbots: discarding oversized message from $frombot."
++        unset nb_gbuffer($bkey) nb_gbtime($bkey)
++        set nb_gbdrop($bkey) [unixtime]
++      }
+       return 0
+     }
+-    set arg [decrypt $nb_key [append nb_gbuffer($sid) $skey]]
+-    unset nb_gbuffer($sid)
++    if {[info exists nb_gbdrop($bkey)]} {
++      unset nb_gbdrop($bkey) ; return 0
++    }
++    if {![info exists nb_gbuffer($bkey)]} {return 0}
++    set data [decrypt $nb_key $nb_gbuffer($bkey)]
++    unset nb_gbuffer($bkey) nb_gbtime($bkey)
+   } else {
+-    set arg [decrypt $nb_key [lindex $arg 1]]
++    set data [decrypt $nb_key [lindex $arg 1]]
+   }
+-  if {[lindex $arg 0] != $frombot} {
++  if {[catch {llength $data} dlen] || $dlen != 3 || ![string equal -nocase [lindex $data 0] $frombot]} {
+     putlog "netbots: rejected command from $frombot (incorrect key)." ; return 0
+   }
+-  set command [lindex $arg 1]
++  set command [lindex $data 1]
+   if {![string match "r*" $command]} {
+     if {[array exists nb_ctrlbots]} {
+       if {[lsearch -exact $nb_ctrlbot(*) $command] == -1} {
+@@ -1968,44 +2114,125 @@
+       }
+     }
+   }
+-  set args [lindex $arg 2]
++  set args [lindex $data 2]
++  if {[catch {llength $args}]} {
++    putlog "netbots: rejected command from $frombot (malformed arguments)." ; return 0
++  }
+   switch -exact -- $command {
+-    "netbots" {nb_netbots $frombot $args}
+-    "netinfo" {nb_netinfo $frombot $args}
+-    "rnetinfo" {nb_rnetinfo $frombot $args}
+-    "netshell" {nb_netshell $frombot $args}
+-    "rnetshell" {nb_rnetshell $frombot $args}
+-    "netserv" {nb_netserv $frombot $args}
+-    "rnetserv" {nb_rnetserv $frombot $args}
+-    "netpass" {nb_netpass $frombot $args}
+-    "rnetpass" {nb_rnetpass $frombot $args}
+-    "netsave" {nb_netsave $frombot $args}
+-    "nethash" {nb_nethash $frombot $args}
+-    "netsay" {nb_netsay $frombot $args}
+-    "netact" {nb_netact $frombot $args}
+-    "netnotc" {nb_netnotc $frombot $args}
+-    "netdump" {nb_netdump $frombot $args}
+-    "netnick" {nb_netnick $frombot $args}
+-    "netjump" {nb_netjump $frombot $args}
+-    "netjoin" {nb_netjoin $frombot $args}
+-    "netpart" {nb_netpart $frombot $args}
+-    "netchanset" {nb_netchanset $frombot $args}
++    "netbots" {set handler nb_netbots}
++    "netinfo" {set handler nb_netinfo}
++    "rnetinfo" {set handler nb_rnetinfo}
++    "netshell" {set handler nb_netshell}
++    "rnetshell" {set handler nb_rnetshell}
++    "netserv" {set handler nb_netserv}
++    "rnetserv" {set handler nb_rnetserv}
++    "netpass" {set handler nb_netpass}
++    "rnetpass" {set handler nb_rnetpass}
++    "netsave" {set handler nb_netsave}
++    "nethash" {set handler nb_nethash}
++    "netsay" {set handler nb_netsay}
++    "netact" {set handler nb_netact}
++    "netnotc" {set handler nb_netnotc}
++    "netdump" {set handler nb_netdump}
++    "netnick" {set handler nb_netnick}
++    "netjump" {set handler nb_netjump}
++    "netjoin" {set handler nb_netjoin}
++    "netpart" {set handler nb_netpart}
++    "netchanset" {set handler nb_netchanset}
+     "nettcl" {
+-      if {$nb_nettcl} {nb_nettcl $frombot $args}
++      if {$nb_nettcl} {set handler nb_nettcl}
+     }
+     "rnettcl" {
+-      if {$nb_nettcl} {nb_rnettcl $frombot $args}
++      if {$nb_nettcl} {set handler nb_rnettcl}
+     }
+     "netupdate" {
+-      if {$nb_netupdate} {nb_netupdate $frombot $args}
++      if {$nb_netupdate} {set handler nb_netupdate}
+     }
+     "rnetupdate" {
+-      if {$nb_netupdate} {nb_rnetupdate $frombot $args}
++      if {$nb_netupdate} {set handler nb_rnetupdate}
++    }
++    "rbroadcast" {set handler nb_broadcast}
++    default {
++      if {[info exists nb_netcmds($command)]} {
++        set handler $nb_netcmds($command)
++      }
++    }
++  }
++  if {[info exists handler] && [info commands $handler] != ""} {
++    if {[catch {$handler $frombot $args} err]} {
++      putlog "netbots: error processing '$command' from $frombot: $err"
++    }
++  }
++  return 0
++}
++
++# Clears per-bot state when a bot leaves the botnet.
++proc nb_disc {bot} {
++  global nb_expect nb_gbdrop nb_gbuffer nb_gbtime nb_getfrom nb_getting nb_sending
++  set stlbot [string tolower $bot]
++  foreach var {nb_gbuffer nb_gbtime nb_gbdrop} {
++    foreach key [array names $var "$stlbot,*"] {
++      unset ${var}($key)
++    }
++  }
++  if {[info exists nb_sending($stlbot)]} {
++    unset nb_sending($stlbot)
++    nb_killutimer "nb_timeout sending $bot *"
++    putlog "netbots: aborted file transfer to $bot (bot disconnected)."
++  }
++  if {$nb_getting && [info exists nb_getfrom] && $nb_getfrom == $stlbot} {
++    nb_killutimer "nb_timeout getting $bot *"
++    nb_killutimer "nb_wait $bot *"
++    nb_resetget
++    putlog "netbots: aborted file transfer from $bot (bot disconnected)."
++  }
++  if {[info exists nb_expect($stlbot)]} {
++    unset nb_expect($stlbot)
++  }
++  return 0
++}
++
++# Periodic housekeeping: expires stale buffers and state so arrays can't grow
++# without bound.
++proc nb_cleanup {} {
++  global nb_ctrlidx nb_expect nb_gbdrop nb_gbtime nb_gbuffer nb_getfrom nb_getting nb_upinit
++  set now [unixtime]
++  foreach key [array names nb_gbtime] {
++    if {$now - $nb_gbtime($key) > 300} {
++      unset nb_gbtime($key)
++      if {[info exists nb_gbuffer($key)]} {
++        unset nb_gbuffer($key)
++      }
++    }
++  }
++  foreach key [array names nb_gbuffer] {
++    if {![info exists nb_gbtime($key)]} {
++      unset nb_gbuffer($key)
++    }
++  }
++  foreach key [array names nb_gbdrop] {
++    if {$now - $nb_gbdrop($key) > 300} {
++      unset nb_gbdrop($key)
++    }
++  }
++  foreach key [array names nb_upinit] {
++    if {$now - $nb_upinit($key) > 3600} {
++      unset nb_upinit($key)
++    }
++  }
++  foreach key [array names nb_expect] {
++    if {$nb_getting && [info exists nb_getfrom] && $nb_getfrom == $key} {continue}
++    if {$now - [lindex $nb_expect($key) 0] > 3600} {
++      unset nb_expect($key)
+     }
+-    "rbroadcast" {nb_broadcast $frombot $args}
+   }
+-  if {[info exists nb_netcmds($command)]} {
+-    $nb_netcmds($command) $frombot $args
++  foreach idx [array names nb_ctrlidx] {
++    if {![valididx $idx]} {
++      unset nb_ctrlidx($idx)
++    }
++  }
++  if {![string match "*nb_cleanup*" [timers]]} {
++    timer 5 nb_cleanup
+   }
+   return 0
+ }
+@@ -2020,19 +2247,38 @@
+ 
+ proc nb_chattr {hand idx arg} {
+   global nb_flag nb_owner owner
+-  if {[string match *$nb_flag* [lindex [split $arg] 1]]} {
++  # check every flag argument (global and channel), not only the second word
++  if {[string match *$nb_flag* [join [lrange [split $arg] 1 end]]]} {
+     if {((![matchattr $hand n]) || (($nb_owner) && ([lsearch -exact [split [string tolower $owner] ", "] [string tolower $hand]] == -1)))} {
+       putidx $idx "You do not have access to add/remove the netbot (+$nb_flag) flag."
+-      return
++      return 0
+     }
+   }
+   *dcc:chattr $hand $idx $arg
+ }
+ 
++# Generates a random password, using /dev/urandom when available.
+ proc nb_randpass {} {
+-  set l [expr 8 + [rand 4]]
++  set chars "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
++  set l [expr {12 + [rand 5]}]
++  set randpass ""
++  if {![catch {open /dev/urandom r} rfile]} {
++    fconfigure $rfile -translation binary
++    while {[string length $randpass] < $l} {
++      binary scan [read $rfile 32] c* bytes
++      foreach byte $bytes {
++        set byte [expr {$byte & 0xff}]
++        # reject values that would bias the distribution
++        if {$byte >= 248} {continue}
++        append randpass [string index $chars [expr {$byte % 62}]]
++        if {[string length $randpass] >= $l} {break}
++      }
++    }
++    close $rfile
++    return $randpass
++  }
+   for {set x 0} {$x < $l} {incr x} {
+-    append randpass [string index "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890" [rand 62]]
++    append randpass [string index $chars [rand 62]]
+   }
+   return $randpass
+ }
+@@ -2132,29 +2378,45 @@
+ # This proc is based on that used in randomservers.tcl by FireEgl
+   set tmpservers ""
+   foreach server $servers {
+-    set ports [lindex [split $server :] 1]
+-    set pass [lindex [split $server :] 2]
+-    if {$ports != ""} {
+-      set portlist ""
+-      foreach group [split $ports ,] {
+-        set lowport [lindex [split $group -] 0]
+-        set highport [lindex [split $group -] 1]
+-        if {$highport == ""} {
+-          lappend portlist $lowport
+-        } else {
+-          while {$highport >= $lowport} {
+-            lappend portlist $lowport
+-            incr lowport
+-          }
+-        }
+-      }
+-      if {$pass != ""} {
+-        lappend tmpservers [lindex [split $server :] 0]:[lindex $portlist [rand [llength $portlist]]]:$pass
+-      } else {
+-        lappend tmpservers [lindex [split $server :] 0]:[lindex $portlist [rand [llength $portlist]]]
++    set parts [split $server :]
++    set host [lindex $parts 0] ; set ports [lindex $parts 1] ; set pass [join [lrange $parts 2 end] :]
++    if {$ports == ""} {
++      lappend tmpservers $server
++      continue
++    }
++    # pick a port without expanding ranges into (possibly huge) lists
++    set ssl "" ; set ranges "" ; set total 0
++    if {[string index $ports 0] == "+"} {
++      set ssl "+" ; set ports [string range $ports 1 end]
++    }
++    foreach group [split $ports ,] {
++      set low [lindex [split $group -] 0] ; set high [lindex [split $group -] 1]
++      if {$high == ""} {
++        set high $low
++      }
++      if {![string is integer -strict $low] || ![string is integer -strict $high] || $low < 1 || $high > 65535 || $high < $low} {
++        continue
++      }
++      lappend ranges [list $low $high]
++      incr total [expr {$high - $low + 1}]
++    }
++    if {!$total} {
++      putlog "netbots: ignoring server '$server' (invalid port specification)."
++      continue
++    }
++    set pick [rand $total]
++    foreach range $ranges {
++      set size [expr {[lindex $range 1] - [lindex $range 0] + 1}]
++      if {$pick < $size} {
++        set port [expr {[lindex $range 0] + $pick}]
++        break
+       }
++      incr pick -$size
++    }
++    if {$pass != ""} {
++      lappend tmpservers $host:$ssl$port:$pass
+     } else {
+-      lappend tmpservers $server
++      lappend tmpservers $host:$ssl$port
+     }
+   }
+   return $tmpservers
+@@ -2228,6 +2490,9 @@
+   nb_setctrlbots
+   rename nb_setctrlbots ""
+ } else {
++  if {![info exists nb_ctrlbots]} {
++    set nb_ctrlbots ""
++  }
+   set nb_ctrlbots [split [string tolower $nb_ctrlbots] ,]
+ }
+ 
+@@ -2239,40 +2504,51 @@
+   set servers [nb_randport [nb_randomise $nb_servers]]
+ }
+ 
+-if {$nb_netupdate == 2} {
+-  if {$numversion < 1060000} {
+-    set nb_netupdate 1
+-  } elseif {![info exists nb_md5]} {
+-    nb_md5load
+-  }
++if {$nb_netupdate == 2 && ![info exists nb_md5]} {
++  nb_md5load
+ }
+ 
+ if {![info exists nb_getting]} {
+   set nb_getting 0
+ }
++if {![info exists nb_lines]} {
++  set nb_lines ""
++}
++if {![info exists nb_gotbytes]} {
++  set nb_gotbytes 0
++}
++# maximum size (bytes) of a single netupdate transfer / reassembled message
++if {![info exists nb_maxbuffer] || ![string is integer -strict $nb_maxbuffer] || $nb_maxbuffer < 65536} {
++  set nb_maxbuffer 4194304
++}
+ 
+ set nb_castfilter [split [string tolower $nb_castfilter]]
+ 
++# The old (pre-4.11) bind used the year field as a day-of-week and never
++# fired, so always rebind: daily check, rate limited to once a week.
++foreach nb_lbind [binds nb_update] {
++  catch {unbind time - [lindex $nb_lbind 2] nb_update}
++}
++catch {unset nb_lbind}
+ if {[string length $nb_update]} {
+-  if {![string length [binds nb_update]]} {
+-    bind time - "[format "%02d" [expr {[rand 59] + 1}]] [format "%02d" [rand 24]] * * [rand 8]" nb_update
+-  }
+-} elseif {[string length [binds nb_update]]} {
+-  unbind time - [lindex [lindex [binds nb_update] 0] 2] nb_update
++  bind time - "[format "%02d" [expr {[rand 59] + 1}]] [format "%02d" [rand 24]] * * *" nb_update
+ }
+-bind filt - * nb_cmdcast
+-if {!$nb_cmdcast} {
+-  unbind filt - * nb_cmdcast
+-  rename nb_cmdcast ""
++
++bind filt - * nb_filtctrl
++catch {unbind filt - * nb_cmdcast}
++if {$nb_cmdcast} {
++  bind filt - * nb_cmdcast
+ }
+ if {$nb_flag != "b" && $nb_flag != "all"} {
+-  unbind dcc m|m chattr *dcc:chattr
++  catch {unbind dcc m|m chattr *dcc:chattr}
+   bind dcc m|m chattr nb_chattr
+ } else {
++  # restore eggdrop's own .chattr if a previous load replaced it
+   catch {unbind dcc m|m chattr nb_chattr}
+-  rename nb_chattr ""
++  catch {bind dcc m|m chattr *dcc:chattr}
+ }
+ bind bot - nb nb_gotcmd
++bind disc - * nb_disc
+ bind dcc - nethelp nb_dccnethelp
+ bind dcc n components nb_dcccomponents
+ bind dcc n netbots nb_dccnetbots
+@@ -2305,41 +2581,57 @@
+ }
+ bind chon - * nb_chon
+ bind chof - * nb_chof
+-if {!$nb_chon} {
+-  unbind chof - * nb_chof
+-  rename nb_chof ""
+-}
+-if {$numversion >= 1032800} {
+-  bind evnt - sighup nb_sighup ; bind evnt - sigterm nb_sigterm
+-}
++bind evnt - sighup nb_sighup
++bind evnt - sigterm nb_sigterm
+ catch {bind raw - 001 nb_svconnect}
+ catch {bind raw - 465 nb_svkline}
+ 
++if {![string match "*nb_cleanup*" [timers]]} {
++  timer 5 nb_cleanup
++}
++
+ set nb_components(netbots) "[string index $nb_numver 0].[string range $nb_numver 1 2].[string index $nb_numver 3]"
+ 
+-set nb_scripts $nb_script
++set nb_scripts [list $nb_script]
++
++proc nb_ison {value} {
++  if {[string is integer -strict $value]} {return [expr {$value != 0}]}
++  if {[string is boolean -strict $value]} {return [string is true -strict $value]}
++  return 0
++}
++
++# md5 of a file's contents, computed inside a proc so the file contents don't
++# linger in a global variable.
++proc nb_md5file {file} {
++  if {[catch {file mtime $file} filemtime]} {
++    set filemtime 0
++  }
++  if {[catch {open $file r} rfile]} {return}
++  fconfigure $rfile -translation binary
++  set fstring [read $rfile]
++  close $rfile
++  nb_md5write $file $filemtime [md5 $fstring]
++  return
++}
+ 
+ if {[info exists nb_component]} {
+   foreach nb_lcomponent [lsort [array names nb_component]] {
+-    if {!$nb_component($nb_lcomponent)} {continue}
++    if {![nb_ison $nb_component($nb_lcomponent)]} {continue}
++    if {![regexp -- {^[A-Za-z0-9_-]+$} $nb_lcomponent]} {
++      putlog "Unable to load component '$nb_lcomponent' - invalid component name."
++      continue
++    }
+     set nb_lsource $nb_dir/$nb_lcomponent.tcl
+     lappend nb_scripts $nb_lsource
+     if {[file readable $nb_lsource] && [file isfile $nb_lsource]} {
+       if {$nb_netupdate == 2} {
+-        if {[catch {file mtime $nb_lsource} filemtime]} {
+-          set filemtime 0
+-        }
+-        set rfile [open $nb_lsource r]
+-        fconfigure $rfile -translation binary
+-        set fstring [read $rfile]
+-        close $rfile
+-        nb_md5write $nb_lsource $filemtime [md5 $fstring]
++        nb_md5file $nb_lsource
+       }
+       if {[catch {source $nb_lsource} nb_error]} {
+         putlog "*** WARNING: error found when loading $nb_lsource:"
+         putlog $nb_error
+         utimer 3 [list nb_berror $nb_lsource]
+-        return
++        continue
+       }
+       if {[lindex [split $nb_error] 0] == "nb_info"} {
+         set nb_components($nb_lcomponent) [lrange [split $nb_error] 1 end]
+@@ -2351,15 +2643,12 @@
+     }
+   }
+ }
+-if {[info exists nb_lcomponent]} {
+-  unset nb_lcomponent
+-}
+-if {[info exists nb_lsource]} {
+-  unset nb_lsource
+-}
+-if {[info exists nb_error]} {
+-  unset nb_error
++foreach nb_lvar {nb_lcomponent nb_lsource nb_error} {
++  if {[info exists $nb_lvar]} {
++    unset $nb_lvar
++  }
+ }
++unset nb_lvar
+ 
+ putlog "Loaded components: [join [lsort [array names nb_components]] ", "]"
+ 
+@@ -2368,7 +2657,7 @@
+   if {[string compare $nb_lcomponent "netbots"] == 0} {
+     continue
+   }
+-  if {![info exists nb_component($nb_lcomponent)] || !$nb_component($nb_lcomponent)} {
++  if {![info exists nb_component($nb_lcomponent)] || ![nb_ison $nb_component($nb_lcomponent)]} {
+     lappend nb_ucomponents $nb_lcomponent
+   }
+ }
+diff -ruN netbots4.10/netset.tcl.example netbots4.11/netset.tcl.example
+--- netbots4.10/netset.tcl.example	2026-10-21 15:31:16.253120315 +0000
++++ netbots4.11/netset.tcl.example	2026-10-21 15:31:16.250042180 +0000
+@@ -1,4 +1,4 @@
+-# netbots.tcl v4.10 (8 August 2005)
++# netbots.tcl v4.11
+ # Copyright 1998-2005 by slennox
+ # http://www.egghelp.org/
+ 
+@@ -8,7 +8,9 @@
+ 
+ # netbots.tcl settings
+ set nb_flag "b"
+-set nb_key "zxcvvbnmasdfghjkl1234567890"
++# Use a long random key (12+ characters). It is the only thing that
++# authenticates netbot commands, so keep it secret.
++set nb_key "changethis"
+ #set nb_group(cats) "Burmese,Persian,Siamese"
+ #set nb_group(dogs) "Doberman,Whippet"
+ set nb_defctrl "*"
+@@ -16,6 +18,8 @@
+ set nb_ctrlbots ""
+ set nb_max 6
+ set nb_timeout 180
++# Maximum size in bytes of one netupdate transfer / botnet message (default 4MB).
++#set nb_maxbuffer 4194304
+ set nb_netupdate 2
+ set nb_nettcl 0
+ # The two lines below serve as a small example of how nb_set can be used. Change "NoteBot" to the bot you'd like to receive update notifications from and "YourNick" to your user handle on the bot.
+@@ -164,5 +168,5 @@
+ 
+ # These lines make sure your bot and netbots directories are secure by
+ # setting their permissions to rwx------.
+-catch {exec chmod 700 [pwd]}
+-catch {exec chmod 700 $nb_dir}
++catch {file attributes [pwd] -permissions 0700}
++catch {file attributes $nb_dir -permissions 0700}
+diff -ruN netbots4.10/repeat.tcl netbots4.11/repeat.tcl
+--- netbots4.10/repeat.tcl	2026-10-21 15:31:16.254377038 +0000
++++ netbots4.11/repeat.tcl	2026-10-21 15:31:16.249987321 +0000
+@@ -1,39 +1,67 @@
+-# netbots.tcl v4.10 (8 August 2005)
++# netbots.tcl v4.11 (security & bugfix release, based on v4.10 by slennox)
+ # Copyright 1998-2005 by slennox
+ # http://www.egghelp.org/
+ 
+ ## repeat.tcl component script ##
+ 
++# Settings are split before anything uses them (previously the reset timers
++# were scheduled with the unsplit "n:secs" strings, i.e. 'utimer "" ...').
++set rp_chans [split [string tolower $rp_chans]]
++set rp_echans [split [string tolower $rp_echans]]
++set rp_kflood [split $rp_kflood :]
++set rp_bflood [split $rp_bflood :]
++set rp_sflood [split $rp_sflood :]
++
++# a flood setting is active only if both count and time are positive integers
++proc rp_on {setting} {
++  set count [lindex $setting 0] ; set secs [lindex $setting 1]
++  if {![string is integer -strict $count] || ![string is integer -strict $secs]} {return 0}
++  return [expr {$count > 0 && $secs > 0}]
++}
++
+ proc rp_pubmsg {nick uhost hand chan text} {
+   global botnick rp_bcount rp_bflood rp_breason rp_btime rp_efficient rp_exempt rp_kcount rp_kflood rp_kreason rp_scount rp_sflood rp_slength rp_sreason rp_warning
+-  set uhost [string tolower $uhost] ; set chan [string tolower $chan] ; set text [string tolower $text]
+-  if {$nick == $botnick || ![rp_chan $chan] || [matchattr $hand $rp_exempt $chan]} {return 0}
+-  if {!$rp_efficient && [llength [utimers]] > 999} {return 0}
+-  if {![info exists rp_bcount($uhost:$chan:$text)]} {
+-    set rp_bcount($uhost:$chan:$text) 1
+-  } else {
+-    incr rp_bcount($uhost:$chan:$text)
+-  }
+-  if {![info exists rp_kcount($uhost:$chan:$text)]} {
+-    set rp_kcount($uhost:$chan:$text) 1
+-  } else {
+-    incr rp_kcount($uhost:$chan:$text)
+-  }
+-  if {!$rp_efficient} {
+-    utimer [lindex $rp_bflood 1] [list rp_breset $uhost $chan $text]
+-    utimer [lindex $rp_kflood 1] [list rp_kreset $uhost $chan $text]
+-  }
+-  if {[string length $text] > $rp_slength} {
+-    if {![info exists rp_scount($uhost:$chan:$text)]} {
+-      set rp_scount($uhost:$chan:$text) 1
++  set uhost [string tolower [string trimleft $uhost "~+-^="]] ; set chan [string tolower $chan] ; set text [string tolower $text]
++  if {[string equal -nocase $nick $botnick] || ![validchan $chan] || ![rp_chan $chan] || [matchattr $hand $rp_exempt $chan]} {return 0}
++  if {$rp_efficient} {
++    # counters are wiped by the periodic reset; cap them in between
++    if {[array size rp_bcount] > 5000 || [array size rp_kcount] > 5000} {return 0}
++  } elseif {[llength [utimers]] > 999} {
++    return 0
++  }
++  set key $uhost:$chan:$text
++  set bon [rp_on $rp_bflood] ; set kon [rp_on $rp_kflood] ; set son [rp_on $rp_sflood]
++  if {$bon} {
++    if {[info exists rp_bcount($key)]} {
++      incr rp_bcount($key)
+     } else {
+-      incr rp_scount($uhost:$chan:$text)
++      set rp_bcount($key) 1
++    }
++    if {!$rp_efficient} {
++      utimer [lindex $rp_bflood 1] [list rp_breset $uhost $chan $text]
++    }
++  }
++  if {$kon} {
++    if {[info exists rp_kcount($key)]} {
++      incr rp_kcount($key)
++    } else {
++      set rp_kcount($key) 1
++    }
++    if {!$rp_efficient} {
++      utimer [lindex $rp_kflood 1] [list rp_kreset $uhost $chan $text]
++    }
++  }
++  if {$son && [string length $text] > $rp_slength} {
++    if {[info exists rp_scount($key)]} {
++      incr rp_scount($key)
++    } else {
++      set rp_scount($key) 1
+     }
+     if {!$rp_efficient} {
+       utimer [lindex $rp_sflood 1] [list rp_sreset $uhost $chan $text]
+     }
+   }
+-  if {$rp_bcount($uhost:$chan:$text) == [lindex $rp_bflood 0]} {
++  if {$bon && $rp_bcount($key) == [lindex $rp_bflood 0]} {
+     if {[botisop $chan]} {
+       putserv "KICK $chan $nick :$rp_breason"
+     }
+@@ -41,7 +69,7 @@
+     if {![matchban $ban $chan]} {
+       newchanban $chan $ban repeat $rp_breason $rp_btime
+     }
+-  } elseif {$rp_kcount($uhost:$chan:$text) == [lindex $rp_kflood 0]} {
++  } elseif {$kon && $rp_kcount($key) == [lindex $rp_kflood 0]} {
+     if {![rp_mhost $nick $uhost $chan] && [botisop $chan]} {
+       if {$rp_warning} {
+         puthelp "PRIVMSG $chan :$nick$rp_kreason"
+@@ -49,14 +77,12 @@
+         putserv "KICK $chan $nick :$rp_kreason"
+       }
+     }
+-  } elseif {[info exists rp_scount($uhost:$chan:$text)]} {
+-    if {$rp_scount($uhost:$chan:$text) == [lindex $rp_sflood 0]} {
+-      if {![rp_mhost $nick $uhost $chan] && [botisop $chan]} {
+-        if {$rp_warning} {
+-          puthelp "PRIVMSG $chan :$nick$rp_sreason"
+-        } else {
+-          putserv "KICK $chan $nick :$rp_sreason"
+-        }
++  } elseif {[info exists rp_scount($key)] && $rp_scount($key) == [lindex $rp_sflood 0]} {
++    if {![rp_mhost $nick $uhost $chan] && [botisop $chan]} {
++      if {$rp_warning} {
++        puthelp "PRIVMSG $chan :$nick$rp_sreason"
++      } else {
++        putserv "KICK $chan $nick :$rp_sreason"
+       }
+     }
+   }
+@@ -84,9 +110,12 @@
+   set nick [lindex [split $from !] 0]
+   set chan [lindex [split $arg] 0]
+   if {![validchan $chan] || ![onchan $nick $chan]} {return 0}
+-  set uhost [string trimleft [getchanhost $nick $chan] "~+-^="]
++  set uhost [getchanhost $nick $chan]
+   set hand [nick2hand $nick $chan]
+   set text [join [lrange [split $arg] 1 end]]
++  if {[string index $text 0] == ":"} {
++    set text [string range $text 1 end]
++  }
+   rp_pubmsg $nick $uhost $hand $chan $text
+   return 0
+ }
+@@ -106,19 +135,35 @@
+       newchanban $chan $ban repeat $rp_mreason $rp_btime
+     }
+     return 1
+-  } else {
+-    lappend rp_mhosts($chan) $mhost
+-    utimer $rp_mtime [list rp_mhostreset $chan]
+   }
++  lappend rp_mhosts($chan) $mhost
++  utimer $rp_mtime [list rp_mhostreset $chan]
+   return 0
+ }
+ 
+ proc rp_mhostreset {chan} {
+   global rp_mhosts
++  if {![info exists rp_mhosts($chan)]} {return 0}
+   set rp_mhosts($chan) [lrange $rp_mhosts($chan) 1 end]
++  if {$rp_mhosts($chan) == ""} {
++    unset rp_mhosts($chan)
++  }
+   return 0
+ }
+ 
++# Kill reset timers from either mode before redefining the procs, otherwise a
++# rehash that toggles rp_efficient leaves timers that call the new procs with
++# the wrong number of arguments.
++nb_killutimer "rp_kreset*"
++nb_killutimer "rp_breset*"
++nb_killutimer "rp_sreset*"
++foreach rp_var {rp_bcount rp_kcount rp_scount} {
++  if {[info exists $rp_var]} {
++    unset $rp_var
++  }
++}
++unset rp_var
++
+ if {$rp_efficient} {
+ 
+   proc rp_breset {} {
+@@ -126,7 +171,9 @@
+     if {[info exists rp_bcount]} {
+       unset rp_bcount
+     }
+-    utimer [lindex $rp_bflood 1] rp_breset
++    if {[rp_on $rp_bflood]} {
++      utimer [lindex $rp_bflood 1] rp_breset
++    }
+     return 0
+   }
+ 
+@@ -135,7 +182,9 @@
+     if {[info exists rp_kcount]} {
+       unset rp_kcount
+     }
+-    utimer [lindex $rp_kflood 1] rp_kreset
++    if {[rp_on $rp_kflood]} {
++      utimer [lindex $rp_kflood 1] rp_kreset
++    }
+     return 0
+   }
+ 
+@@ -144,21 +193,19 @@
+     if {[info exists rp_scount]} {
+       unset rp_scount
+     }
+-    utimer [lindex $rp_sflood 1] rp_sreset
++    if {[rp_on $rp_sflood]} {
++      utimer [lindex $rp_sflood 1] rp_sreset
++    }
+     return 0
+   }
+ 
+-  nb_killutimer rp_kreset
+-  nb_killutimer rp_breset
+-  nb_killutimer rp_sreset
+-
+-  if {[lsearch -exact $rp_kflood 0] == -1} {
++  if {[rp_on $rp_kflood]} {
+     utimer [lindex $rp_kflood 1] rp_kreset
+   }
+-  if {[lsearch -exact $rp_bflood 0] == -1} {
++  if {[rp_on $rp_bflood]} {
+     utimer [lindex $rp_bflood 1] rp_breset
+   }
+-  if {[lsearch -exact $rp_sflood 0] == -1} {
++  if {[rp_on $rp_sflood]} {
+     utimer [lindex $rp_sflood 1] rp_sreset
+   }
+ 
+@@ -166,42 +213,35 @@
+ 
+   proc rp_breset {uhost chan text} {
+     global rp_bcount
+-    if {![incr rp_bcount($uhost:$chan:$text) -1]} {
+-      unset rp_bcount($uhost:$chan:$text)
++    set key $uhost:$chan:$text
++    if {[info exists rp_bcount($key)] && [incr rp_bcount($key) -1] <= 0} {
++      unset rp_bcount($key)
+     }
+     return 0
+   }
+ 
+   proc rp_kreset {uhost chan text} {
+     global rp_kcount
+-    if {![incr rp_kcount($uhost:$chan:$text) -1]} {
+-      unset rp_kcount($uhost:$chan:$text)
++    set key $uhost:$chan:$text
++    if {[info exists rp_kcount($key)] && [incr rp_kcount($key) -1] <= 0} {
++      unset rp_kcount($key)
+     }
+     return 0
+   }
+ 
+   proc rp_sreset {uhost chan text} {
+     global rp_scount
+-    if {![incr rp_scount($uhost:$chan:$text) -1]} {
+-      unset rp_scount($uhost:$chan:$text)
++    set key $uhost:$chan:$text
++    if {[info exists rp_scount($key)] && [incr rp_scount($key) -1] <= 0} {
++      unset rp_scount($key)
+     }
+     return 0
+   }
+ 
+-  nb_killutimer "rp_kreset*"
+-  nb_killutimer "rp_breset*"
+-  nb_killutimer "rp_sreset*"
+-
+ }
+ 
+-set rp_chans [split [string tolower $rp_chans]]
+-set rp_echans [split [string tolower $rp_echans]]
+-set rp_kflood [split $rp_kflood :]
+-set rp_bflood [split $rp_bflood :]
+-set rp_sflood [split $rp_sflood :]
+-
+ bind pubm - * rp_pubmsg
+ bind ctcp - ACTION rp_pubact
+ bind raw - NOTICE rp_pubnotc
+ 
+-return "nb_info 4.10.0"
++return "nb_info 4.11.0"
+diff -ruN netbots4.10/sentinel.tcl netbots4.11/sentinel.tcl
+--- netbots4.10/sentinel.tcl	2026-10-21 15:31:16.254123165 +0000
++++ netbots4.11/sentinel.tcl	2026-10-21 15:31:16.250698218 +0000
+@@ -1,4 +1,4 @@
+-# netbots.tcl v4.10 (8 August 2005)
++# netbots.tcl v4.11 (security & bugfix release, based on v4.10 by slennox)
+ # Copyright 1998-2005 by slennox
+ # http://www.egghelp.org/
+ 
+@@ -53,11 +53,23 @@
+ set nb_help(lock) "sl_help"
+ set nb_help(unlock) "sl_help"
+ 
++# Ensures the per-channel state exists (channels added after load, or
++# events arriving before the bot's own join was seen). Returns 0 for
++# non-channels.
++proc sl_chk {chan} {
++  global sl_flooded
++  if {![validchan $chan]} {return 0}
++  if {![info exists sl_flooded([string tolower $chan])]} {
++    sl_setarray $chan
++  }
++  return 1
++}
++
+ proc sl_ctcp {nick uhost hand dest key arg} {
+   global botnet-nick botnick realname sl_ban sl_bflooded sl_bcflood sl_bcqueue sl_bxjointime sl_bxmachine sl_bxonestack sl_bxsimul sl_bxsystem sl_bxversion sl_bxwhoami sl_ccbanhost sl_ccbannick sl_ccflood sl_ccqueue sl_flooded sl_locked sl_note
+   set chan [string tolower $dest]
+-  if {[lsearch -exact $sl_ccflood 0] == -1 && [validchan $chan] && ![isop $nick $chan]} {
+-    if {$nick == $botnick} {return 0}
++  if {[lsearch -exact $sl_ccflood 0] == -1 && [sl_chk $chan] && ![isop $nick $chan]} {
++    if {[string equal -nocase $nick $botnick]} {return 0}
+     if {$sl_ban && !$sl_locked($chan) && ![matchattr $hand f|f $chan]} {
+       lappend sl_ccbannick($chan) $nick ; lappend sl_ccbanhost($chan) [string tolower $uhost]
+       utimer [lindex $sl_ccflood 1] [list sl_ccbanqueue $chan]
+@@ -69,12 +81,12 @@
+       sl_lock $chan "CTCP flood" ${botnet-nick} ; return 1
+     }
+     if {$sl_bflooded} {return 1}
+-  } elseif {[lindex $sl_bcflood 0] && $dest == $botnick} {
++  } elseif {[lindex $sl_bcflood 0] && [string equal -nocase $dest $botnick]} {
+     if {$sl_bflooded} {
+       sl_ignore [string tolower $uhost] $hand "CTCP flooder" ; return 1
+     }
+     incr sl_bcqueue
+-    utimer [lindex $sl_bcflood 1] {incr sl_bcqueue -1}
++    utimer [lindex $sl_bcflood 1] sl_bcqueuereset
+     if {$sl_bcqueue >= [lindex $sl_bcflood 0]} {
+       putlog "sentinel: CTCP flood detected on me! Stopped answering CTCPs temporarily."
+       set sl_bflooded 1
+@@ -90,7 +102,7 @@
+       return 1
+     }
+     if {$hand == "*"} {
+-      nb_sendcmd * rbroadcast "CTCP from $nick!$uhost: $key [string range $arg 0 400]"
++      nb_sendcmd * rbroadcast "CTCP from $nick!$uhost: $key [string range $arg 0 300]"
+     }
+   }
+ 
+@@ -142,7 +154,7 @@
+       return 1
+     }
+     "PING" {
+-      putserv "NOTICE $nick :\001PING $arg\001"
++      putserv "NOTICE $nick :\001PING [string range $arg 0 59]\001"
+       return 1
+     }
+     "ECHO" {
+@@ -198,7 +210,7 @@
+     sl_ignore [string tolower $uhost] $hand "MSG flooder" ; return 0
+   }
+   incr sl_bmqueue
+-  utimer [lindex $sl_bmflood 1] {incr sl_bmqueue -1}
++  utimer [lindex $sl_bmflood 1] sl_bmqueuereset
+   if {$sl_bmqueue >= [lindex $sl_bmflood 0]} {
+     putlog "sentinel: MSG flood detected on me! Stopped answering MSGs temporarily."
+     set sl_bflooded 1
+@@ -227,9 +239,9 @@
+   global botnet-nick botnick sl_ban sl_avbanhost sl_avbannick sl_avflood sl_avqueue sl_flooded sl_locked sl_txflood sl_txqueue
+   set arg [split $arg]
+   set chan [string tolower [lindex $arg 0]]
+-  if {![validchan $chan]} {return 0}
++  if {![sl_chk $chan]} {return 0}
+   set nick [lindex [split $from !] 0]
+-  if {$nick == $botnick || $nick == "" || [string match *.* $nick]} {return 0}
++  if {[string equal -nocase $nick $botnick] || $nick == "" || [string match *.* $nick]} {return 0}
+   if {![onchan $nick $chan] || [isop $nick $chan]} {return 0}
+   if {!$sl_flooded($chan) && [lsearch -exact $sl_txflood 0] == -1} {
+     incr sl_txqueue($chan)
+@@ -238,6 +250,9 @@
+     }
+   }
+   set text [join [lrange $arg 1 end]]
++  if {[string index $text 0] == ":"} {
++    set text [string range $text 1 end]
++  }
+   if {[string length [set floodtype [sl_checkaval $keyword $text]]] && [lsearch -exact $sl_avflood 0] == -1} {
+     set uhost [string trimleft [getchanhost $nick $chan] "~+-^="]
+     set hand [nick2hand $nick $chan]
+@@ -279,7 +294,7 @@
+ 
+ proc sl_nkflood {nick uhost hand chan newnick} {
+   global botnet-nick botnick sl_ban sl_banmax sl_flooded sl_globalban sl_locked sl_nickkick sl_nkbanhost sl_nkflood sl_nkflooding sl_nkqueue
+-  if {[string equal $chan "*"]} {return 0}
++  if {[string equal $chan "*"] || ![sl_chk $chan]} {return 0}
+   set chan [string tolower $chan]
+   if {[isop $newnick $chan]} {return 0}
+   if {$sl_ban && !$sl_locked($chan) && $nick != $botnick && ![matchattr $hand f|f $chan]} {
+@@ -315,9 +330,9 @@
+ 
+ proc sl_jflood {nick uhost hand chan} {
+   global botnet-nick botnick sl_ban sl_banmax sl_boban sl_bobanhost sl_bobannick sl_boflood sl_boqueue sl_flooded sl_globalban sl_jbanhost sl_jbannick sl_jflood sl_jqueue sl_locked sl_pqueue
+-  if {$nick == $botnick} {
++  if {[string equal -nocase $nick $botnick]} {
+     sl_setarray $chan
+-  } else {
++  } elseif {[sl_chk $chan]} {
+     set ihost [string tolower [sl_masktype $uhost]]
+     if {[isignore $ihost]} {
+       killignore $ihost
+@@ -375,12 +390,13 @@
+ proc sl_pflood {nick uhost hand chan {msg ""}} {
+   global botnick sl_ban sl_flooded sl_jflood sl_locked sl_pbanhost sl_pbannick sl_pqueue
+   if {[lsearch -exact $sl_jflood 0] != -1} {return 0}
+-  if {$nick == $botnick} {
++  if {[string equal -nocase $nick $botnick]} {
+     if {![validchan $chan]} {
+       timer 5 [list sl_unsetarray $chan]
+     }
+     return 0
+   }
++  if {![sl_chk $chan]} {return 0}
+   set chan [string tolower $chan]
+   if {$sl_ban && !$sl_locked($chan) && ![matchattr $hand f|f $chan]} {
+     lappend sl_pbannick($chan) $nick ; lappend sl_pbanhost($chan) [string tolower $uhost]
+@@ -395,7 +411,7 @@
+ proc sl_pfloodk {nick uhost hand chan kicked reason} {
+   global botnick sl_flooded sl_jflood sl_pqueue
+   if {[lsearch -exact $sl_jflood 0] != -1} {return 0}
+-  if {$kicked == $botnick} {return 0}
++  if {[string equal -nocase $kicked $botnick] || ![sl_chk $chan]} {return 0}
+   set chan [string tolower $chan]
+   if {$sl_flooded($chan)} {return 0}
+   incr sl_pqueue($chan)
+@@ -405,6 +421,8 @@
+ 
+ proc sl_lock {chan flood detected} {
+   global sl_bflooded sl_cfnotice sl_flooded sl_locktimes sl_note
++  set chan [string tolower $chan]
++  if {![sl_chk $chan]} {return 0}
+   if {[isbotnetnick $detected]} {
+     set sl_flooded($chan) 1 ; set sl_bflooded 1
+     if {[botisop $chan]} {
+@@ -445,14 +463,25 @@
+   return 0
+ }
+ 
++# Lock notification from another netbot. Any netbot may send these (r*
++# commands bypass the control-bot check), so validate them and rate limit
++# per bot/channel to stop note flooding.
+ proc nb_sl_lock {frombot arg} {
+-  sl_lock [lindex $arg 0] [lindex $arg 1] $frombot
++  global sl_rlock
++  set chan [string tolower [lindex $arg 0]] ; set flood [lindex $arg 1]
++  if {![validchan $chan] || ![regexp -- {^[A-Za-z() -]{1,40}$} $flood]} {return 0}
++  set key [string tolower $frombot],$chan
++  if {[info exists sl_rlock($key)] && [unixtime] - $sl_rlock($key) < 60} {return 0}
++  set sl_rlock($key) [unixtime]
++  sl_lock $chan $flood $frombot
+   return 0
+ }
+ 
+ proc sl_unlock {chan {umodes ""}} {
+   global sl_bflooded sl_bfmaxbans sl_flooded sl_locktimes sl_nkflooding
+-  if {[expr [unixtime] - $sl_nkflooding($chan)] < 12} {
++  if {![sl_chk $chan]} {return 0}
++  set chan [string tolower $chan]
++  if {[unixtime] - $sl_nkflooding($chan) < 12} {
+     putlog "sentinel: nick flooding still in progress on $chan - not unlocking yet.."
+     set sl_flooded($chan) 1 ; set sl_bflooded 1
+     nb_killutimer "sl_unlock $chan*"
+@@ -465,7 +494,7 @@
+     utimer 120 {set sl_bflooded 0}
+   } else {
+     set sl_flooded($chan) 0
+-    if {![botisop $chan]} {return 0}
++    if {![botonchan $chan] || ![botisop $chan]} {return 0}
+     if {$umodes == ""} {
+       putlog "sentinel: flood was small, performing early unlock.."
+       set umodes [sl_lockmodes]
+@@ -489,6 +518,7 @@
+ 
+ proc sl_mode {nick uhost hand chan mode victim} {
+   global botnick sl_ban sl_bfmaxbans sl_bfnotice sl_bfull sl_flooded sl_locked sl_note sl_unlocked
++  if {![sl_chk $chan]} {return 0}
+   set chan [string tolower $chan]
+   if {$mode == "+b" && $sl_bfmaxbans && !$sl_bfull($chan) && ![string match *i* [lindex [split [getchanmode $chan]] 0]] && [botisop $chan] && [llength [chanbans $chan]] >= $sl_bfmaxbans} {
+     putserv "MODE $chan +i"
+@@ -523,7 +553,7 @@
+         nb_killutimer "sl_unlock $chan m"
+       }
+       nb_killutimer "sl_unlock $chan"
+-      if {$nick != $botnick} {
++      if {![string equal -nocase $nick $botnick]} {
+         putlog "sentinel: $chan unlocked by $nick"
+       }
+     }
+@@ -533,7 +563,8 @@
+ 
+ proc sl_dokicks {chan} {
+   global sl_avbannick sl_bobannick sl_ccbannick sl_kflooders sl_jbannick sl_pbannick
+-  if {![botisop $chan]} {return 0}
++  if {![sl_chk $chan] || ![botonchan $chan] || ![botisop $chan]} {return 0}
++  set chan [string tolower $chan]
+   set sl_kflooders 0
+   sl_kick $chan $sl_ccbannick($chan) "CTCP flooder" ; set sl_ccbannick($chan) ""
+   sl_kick $chan $sl_avbannick($chan) "TEXT flooder" ; set sl_avbannick($chan) ""
+@@ -561,7 +592,6 @@
+         lappend kicklist $nick
+       }
+     }
+-    unset nick
+     incr sl_kflooders [llength $kicklist]
+     foreach nick $kicklist {
+       if {[onchan $nick $chan] && ![onchansplit $nick $chan]} {
+@@ -581,7 +611,11 @@
+ 
+ proc sl_setbans {chan} {
+   global sl_avbanhost sl_bobanhost sl_ccbanhost sl_kflooders sl_jbanhost sl_nkbanhost sl_pbanhost sl_shortlock sl_unlocked sl_wideban
+-  if {![botonchan $chan]} {return 0}
++  if {![sl_chk $chan] || ![botonchan $chan]} {return 0}
++  set chan [string tolower $chan]
++  if {![info exists sl_kflooders]} {
++    set sl_kflooders 0
++  }
+   set sl_ccbanhost($chan) [sl_dfilter $sl_ccbanhost($chan)]
+   set sl_avbanhost($chan) [sl_dfilter $sl_avbanhost($chan)]
+   set sl_nkbanhost($chan) [sl_dfilter $sl_nkbanhost($chan)]
+@@ -606,7 +640,7 @@
+   sl_ban $chan $sl_bobanhost($chan) "BOGUS username" ; set sl_bobanhost($chan) ""
+   sl_ban $chan $blist "JOIN-PART flooder"
+   set sl_jbanhost($chan) "" ; set sl_pbanhost($chan) ""
+-  if {$sl_shortlock && $sl_kflooders <= 2 && [llength $allbans] <= 2 && [expr [unixtime] - $sl_unlocked($chan)] > 120} {
++  if {$sl_shortlock && $sl_kflooders <= 2 && [llength $allbans] <= 2 && [unixtime] - $sl_unlocked($chan) > 120} {
+     nb_killutimer "sl_unlock $chan*"
+     utimer 10 [list sl_unlock $chan]
+   }
+@@ -665,7 +699,7 @@
+           if {[isban $bhost]} {continue}
+           foreach ban [banlist] {
+             if {[lindex $ban 5] == "sentinel" && [string match $bhost [string tolower [lindex $ban 0]]]} {
+-              killban $ban
++              killban [lindex $ban 0]
+             }
+           }
+         }
+@@ -684,7 +718,7 @@
+           if {[isban $bhost $chan]} {continue}
+           foreach ban [banlist $chan] {
+             if {[lindex $ban 5] == "sentinel" && [string match $bhost [string tolower [lindex $ban 0]]]} {
+-              killchanban $chan $ban
++              killchanban $chan [lindex $ban 0]
+             }
+           }
+         }
+@@ -717,7 +751,7 @@
+     if {[isignore $ihost]} {return 0}
+     foreach ignore [ignorelist] {
+       if {[lindex $ignore 4] == "sentinel" && [string match $ihost [string tolower [lindex $ignore 0]]]} {
+-        killignore $ignore
++        killignore [lindex $ignore 0]
+       }
+     }
+   }
+@@ -729,25 +763,33 @@
+ # queuereset procs allow all queue timers to be killed easily
+ proc sl_ccqueuereset {chan} {
+   global sl_ccqueue
+-  incr sl_ccqueue($chan) -1
++  if {[info exists sl_ccqueue($chan)] && [incr sl_ccqueue($chan) -1] < 0} {
++    set sl_ccqueue($chan) 0
++  }
+   return 0
+ }
+ 
+ proc sl_bcqueuereset {} {
+   global sl_bcqueue
+-  incr sl_bcqueue -1
++  if {[incr sl_bcqueue -1] < 0} {
++    set sl_bcqueue 0
++  }
+   return 0
+ }
+ 
+ proc sl_bmqueuereset {} {
+   global sl_bmqueue
+-  incr sl_bmqueue -1
++  if {[incr sl_bmqueue -1] < 0} {
++    set sl_bmqueue 0
++  }
+   return 0
+ }
+ 
+ proc sl_avqueuereset {chan} {
+   global sl_avqueue
+-  incr sl_avqueue($chan) -1
++  if {[info exists sl_avqueue($chan)] && [incr sl_avqueue($chan) -1] < 0} {
++    set sl_avqueue($chan) 0
++  }
+   return 0
+ }
+ 
+@@ -764,68 +806,76 @@
+ 
+ proc sl_nkqueuereset {chan} {
+   global sl_nkqueue
+-  incr sl_nkqueue($chan) -1
++  if {[info exists sl_nkqueue($chan)] && [incr sl_nkqueue($chan) -1] < 0} {
++    set sl_nkqueue($chan) 0
++  }
+   return 0
+ }
+ 
+ proc sl_boqueuereset {chan} {
+   global sl_boqueue
+-  incr sl_boqueue($chan) -1
++  if {[info exists sl_boqueue($chan)] && [incr sl_boqueue($chan) -1] < 0} {
++    set sl_boqueue($chan) 0
++  }
+   return 0
+ }
+ 
+ proc sl_jqueuereset {chan} {
+   global sl_jqueue
+-  incr sl_jqueue($chan) -1
++  if {[info exists sl_jqueue($chan)] && [incr sl_jqueue($chan) -1] < 0} {
++    set sl_jqueue($chan) 0
++  }
+   return 0
+ }
+ 
+ proc sl_pqueuereset {chan} {
+   global sl_pqueue
+-  incr sl_pqueue($chan) -1
++  if {[info exists sl_pqueue($chan)] && [incr sl_pqueue($chan) -1] < 0} {
++    set sl_pqueue($chan) 0
++  }
+   return 0
+ }
+ 
+-proc sl_ccbanqueue {chan} {
+-  global sl_ccbanhost sl_ccbannick
+-  set sl_ccbannick($chan) [lrange sl_ccbannick($chan) 1 end] ; set sl_ccbanhost($chan) [lrange sl_ccbanhost($chan) 1 end]
++# Drop the oldest entry from a channel's ban candidate queues. (These used
++# 'lrange sl_xxx($chan) 1 end' without '$', which wiped the whole queue.)
++proc sl_popqueue {chan args} {
++  foreach var $args {
++    upvar #0 $var queue
++    if {[info exists queue($chan)]} {
++      set queue($chan) [lrange $queue($chan) 1 end]
++    }
++  }
+   return 0
+ }
+ 
++proc sl_ccbanqueue {chan} {
++  sl_popqueue $chan sl_ccbannick sl_ccbanhost
++}
++
+ proc sl_avbanqueue {chan} {
+-  global sl_avbanhost sl_avbannick
+-  set sl_avbannick($chan) [lrange sl_avbannick($chan) 1 end] ; set sl_avbanhost($chan) [lrange sl_avbanhost($chan) 1 end]
+-  return 0
++  sl_popqueue $chan sl_avbannick sl_avbanhost
+ }
+ 
+ proc sl_nkbanqueue {chan} {
+-  global sl_nkbanhost
+-  set sl_nkbanhost($chan) [lrange sl_nkbanhost($chan) 1 end]
+-  return 0
++  sl_popqueue $chan sl_nkbanhost
+ }
+ 
+ proc sl_bobanqueue {chan} {
+-  global sl_bobanhost sl_bobannick
+-  set sl_bobannick($chan) [lrange sl_bobannick($chan) 1 end] ; set sl_bobanhost($chan) [lrange sl_bobanhost($chan) 1 end]
+-  return 0
++  sl_popqueue $chan sl_bobannick sl_bobanhost
+ }
+ 
+ proc sl_jbanqueue {chan} {
+-  global sl_jbanhost sl_jbannick
+-  set sl_jbannick($chan) [lrange sl_jbannick($chan) 1 end] ; set sl_jbanhost($chan) [lrange sl_jbanhost($chan) 1 end]
+-  return 0
++  sl_popqueue $chan sl_jbannick sl_jbanhost
+ }
+ 
+ proc sl_pbanqueue {chan} {
+-  global sl_pbanhost sl_pbannick
+-  set sl_pbannick($chan) [lrange sl_pbannick($chan) 1 end] ; set sl_pbanhost($chan) [lrange sl_pbanhost($chan) 1 end]
+-  return 0
++  sl_popqueue $chan sl_pbannick sl_pbanhost
+ }
+ 
+ proc sl_flud {nick uhost hand type chan} {
+   global sl_flooded
+   set chan [string tolower $chan]
+-  if {[validchan $chan] && $sl_flooded($chan)} {return 1}
++  if {[sl_chk $chan] && $sl_flooded($chan)} {return 1}
+   return 0
+ }
+ 
+@@ -920,16 +970,13 @@
+ }
+ 
+ proc sl_quicklock {chan} {
+-  global numversion
+-  if {$numversion < 1050000} {
+-    putquick "MODE $chan +[sl_lockmodes]"
+-  } else {
+-    putquick "MODE $chan +[sl_lockmodes]" -next
+-  }
++  putquick "MODE $chan +[sl_lockmodes]" -next
++  return 0
+ }
+ 
+ proc sl_lockmodes {} {
+   global sl_locktimes
++  set lockmodes ""
+   foreach lockmode $sl_locktimes {
+     append lockmodes [lindex $lockmode 0]
+   }
+@@ -1066,12 +1113,34 @@
+   }
+   if {$sl_bxsimul} {
+     putidx $idx "- BitchX simulation:        On"
+-  } elseif {!$sl_bxsimul} {
++  } else {
+     putidx $idx "- BitchX simulation:        Off"
+   }
+   return 0
+ }
+ 
++proc sl_bxserverjoin {from keyword arg} {
++  global sl_bxjointime sl_bxisaway
++  set sl_bxjointime [unixtime] ; set sl_bxisaway 0
++  return 0
++}
++
++proc sl_bxaway {} {
++  global sl_bxjointime sl_bxisaway sl_bxsimul
++  if {!$sl_bxsimul} {return 0}
++  if {!$sl_bxisaway} {
++    puthelp "AWAY :is away: (Auto-Away after 10 mins) \[\002BX\002-MsgLog [lindex {On Off} [rand 2]]\]"
++    set sl_bxisaway 1
++  } else {
++    puthelp "AWAY"
++    set sl_bxisaway 0 ; set sl_bxjointime [unixtime]
++  }
++  if {![string match *sl_bxaway* [timers]]} {
++    timer [expr {[rand 300] + 10}] sl_bxaway
++  }
++  return 0
++}
++
+ if {$sl_bxsimul} {
+   bind raw - 001 sl_bxserverjoin
+   if {![info exists sl_bxonestack]} {
+@@ -1080,42 +1149,31 @@
+   if {![info exists sl_bxversion]} {
+     set sl_bxversion [lindex {75p1+ 75p3+} [rand 2]]
+   }
+-  set sl_bxsystem "*IX" ; set sl_bxwhoami $username ; set sl_bxmachine ""
+-  catch {set sl_bxsystem [exec uname -s -r]}
+-  catch {set sl_bxwhoami [exec id -un]}
+-  catch {set sl_bxmachine [exec uname -n]}
++  # use Tcl's own platform info instead of exec'ing uname/id on every rehash
++  set sl_bxsystem "$tcl_platform(os) $tcl_platform(osVersion)"
++  set sl_bxwhoami $username
++  catch {set sl_bxwhoami $tcl_platform(user)}
++  set sl_bxmachine [info hostname]
+   set sl_bxjointime [unixtime]
+-  proc sl_bxserverjoin {from keyword arg} {
+-    global sl_bxjointime sl_bxisaway
+-    set sl_bxjointime [unixtime] ; set sl_bxisaway 0
+-    return 0
+-  }
+-  proc sl_bxaway {} {
+-    global sl_bxjointime sl_bxisaway
+-    if {!$sl_bxisaway} {
+-      puthelp "AWAY :is away: (Auto-Away after 10 mins) \[\002BX\002-MsgLog [lindex {On Off} [rand 2]]\]"
+-      set sl_bxisaway 1
+-    } else {
+-      puthelp "AWAY"
+-      set sl_bxisaway 0 ; set sl_bxjointime [unixtime]
+-    }
+-    if {![string match *sl_bxaway* [timers]]} {
+-      timer [expr [rand 300] + 10] sl_bxaway
+-    }
+-    return 0
+-  }
+   if {![info exists sl_bxisaway]} {
+     set sl_bxisaway 0
+   }
+   if {![string match *sl_bxaway* [timers]]} {
+-    timer [expr [rand 300] + 10] sl_bxaway
++    timer [expr {[rand 300] + 10}] sl_bxaway
++  }
++} else {
++  # simulation switched off by a rehash: stop the away timer and clear away
++  catch {unbind raw - 001 sl_bxserverjoin}
++  nb_killtimer sl_bxaway
++  if {[info exists sl_bxisaway] && $sl_bxisaway} {
++    puthelp "AWAY"
+   }
++  set sl_bxisaway 0
+ }
+ 
+ proc sl_setarray {chan} {
+   global sl_avbanhost sl_avbannick sl_avqueue sl_bfull sl_bobanhost sl_bobannick sl_boqueue sl_ccbanhost sl_ccbannick sl_ccqueue sl_flooded sl_jbanhost sl_jbannick sl_jqueue sl_locked sl_nkbanhost sl_nkflooding sl_nkqueue sl_pbanhost sl_pbannick sl_pqueue sl_txqueue sl_unlocked
+   set chan [string tolower $chan]
+-  nb_killutimer "incr sl_*queue($chan) -1"
+   nb_killutimer "sl_*banqueue $chan"
+   nb_killutimer "sl_*queuereset $chan"
+   set sl_flooded($chan) 0 ; set sl_locked($chan) 0 ; set sl_unlocked($chan) [unixtime]
+@@ -1135,6 +1193,10 @@
+   global sl_avbanhost sl_avbannick sl_avqueue sl_bfull sl_bobanhost sl_bobannick sl_boqueue sl_ccbanhost sl_ccbannick sl_ccqueue sl_flooded sl_jbanhost sl_jbannick sl_jqueue sl_locked sl_nkbanhost sl_nkflooding sl_nkqueue sl_pbanhost sl_pbannick sl_pqueue sl_txqueue sl_unlocked
+   set chan [string tolower $chan]
+   if {![validchan $chan] && [info exists sl_flooded($chan)]} {
++    nb_killutimer "sl_*queue* $chan"
++    nb_killutimer "sl_unlock $chan*"
++    nb_killutimer "sl_dokicks $chan"
++    nb_killutimer "sl_setbans $chan"
+     unset sl_flooded($chan) sl_locked($chan) sl_unlocked($chan) sl_nkflooding($chan) sl_ccqueue($chan) sl_ccbanhost($chan) sl_ccbannick($chan) sl_avqueue($chan) sl_avbanhost($chan) sl_avbannick($chan) sl_txqueue($chan) sl_nkqueue($chan) sl_nkbanhost($chan) sl_boqueue($chan) sl_bobanhost($chan) sl_bobannick($chan) sl_jqueue($chan) sl_jbanhost($chan) sl_jbannick($chan) sl_pqueue($chan) sl_pbanhost($chan) sl_pbannick($chan) sl_bfull($chan)
+   }
+   return 0
+@@ -1147,6 +1209,28 @@
+   return 0
+ }
+ 
++# Periodically drops state for channels that no longer exist (e.g. removed
++# while the bot wasn't on them, so no part was ever seen) and old rlock
++# rate-limit entries.
++proc sl_cleanup {} {
++  global sl_flooded sl_rlock
++  foreach chan [array names sl_flooded] {
++    if {![validchan $chan]} {
++      sl_unsetarray $chan
++    }
++  }
++  set now [unixtime]
++  foreach key [array names sl_rlock] {
++    if {$now - $sl_rlock($key) > 300} {
++      unset sl_rlock($key)
++    }
++  }
++  if {![string match "*sl_cleanup*" [timers]]} {
++    timer 10 sl_cleanup
++  }
++  return 0
++}
++
+ proc sl_masktype {uhost} {
+   global sl_masktype
+   switch -exact -- $sl_masktype {
+@@ -1182,22 +1266,27 @@
+ set sl_jflood [split $sl_jflood :] ; set sl_nkflood [split $sl_nkflood :]
+ set sl_note [split $sl_note]
+ 
++set sl_locktimeslist ""
+ foreach sl_locktimepair $sl_locktimes {
+-  if {[lindex [split $sl_locktimepair :] 1] > 0 && [lindex [split $sl_locktimepair :] 1] < 30} {
+-    lappend sl_locktimeslist [list [lindex [split $sl_locktimepair :] 0] 30]
+-  } else {
+-    lappend sl_locktimeslist [split $sl_locktimepair :]
++  set sl_lmode [lindex [split $sl_locktimepair :] 0] ; set sl_ltime [lindex [split $sl_locktimepair :] 1]
++  # lock modes must be single parameterless mode letters with a numeric time
++  if {![regexp -- {^[a-zA-Z]$} $sl_lmode] || [string first $sl_lmode "bklovehIqa"] != -1 || ![string is integer -strict $sl_ltime] || $sl_ltime < 0} {
++    putlog "sentinel: ignoring invalid sl_locktimes entry '$sl_locktimepair'"
++    continue
++  }
++  if {$sl_ltime > 0 && $sl_ltime < 30} {
++    set sl_ltime 30
+   }
++  lappend sl_locktimeslist [list $sl_lmode $sl_ltime]
+ }
+-
+ set sl_locktimes $sl_locktimeslist
+-unset sl_locktimepair
++unset -nocomplain sl_locktimepair sl_lmode sl_ltime
+ unset sl_locktimeslist
+ 
+-if {[lsearch -glob $sl_locktimes {*i* *}] == -1} {
++if {[lsearch -glob $sl_locktimes {i *}] == -1} {
+   lappend sl_locktimes {i 30}
+ }
+-if {[lsearch -glob $sl_locktimes {*m* *}] == -1} {
++if {[lsearch -glob $sl_locktimes {m *}] == -1} {
+   lappend sl_locktimes {m 30}
+ }
+ 
+@@ -1207,28 +1296,24 @@
+ } else {
+   set sl_kicks ${kick-method}
+ }
+-
+-if {$numversion <= 1040400} {
+-  if {$numversion >= 1032100} {
+-    set kick-bogus 0
+-  }
+-  if {$numversion >= 1032400} {
+-    set ban-bogus 0
+-  }
+-}
+-if {$numversion >= 1032400} {
+-  set kick-fun 0 ; set ban-fun 0
+-}
+-if {$numversion >= 1032500} {
+-  set ctcp-mode 0
+-}
++set ctcp-mode 0 ; set kick-fun 0 ; set ban-fun 0
+ 
+ if {![string match *sl_txqueuereset* [utimers]] && [lsearch -exact $sl_txflood 0] == -1} {
+   utimer [lindex $sl_txflood 1] sl_txqueuereset
+ }
++if {![string match "*sl_cleanup*" [timers]]} {
++  timer 10 sl_cleanup
++}
+ 
+ set nb_netcmds(rlock) "nb_sl_lock"
+ 
++# drop binds left from a previous load (sl_lockflags may have changed)
++foreach sl_lproc {sl_lc sl_uc sl_dcclc sl_dccuc} {
++  foreach sl_lbind [binds $sl_lproc] {
++    catch {unbind [lindex $sl_lbind 0] [lindex $sl_lbind 1] [lindex $sl_lbind 2] $sl_lproc}
++  }
++}
++unset -nocomplain sl_lproc sl_lbind
+ bind pub $sl_lockflags|$sl_lockflags lc sl_lc
+ bind pub $sl_lockflags|$sl_lockflags uc sl_uc
+ bind dcc $sl_lockflags|$sl_lockflags lock sl_dcclc
+@@ -1283,4 +1368,4 @@
+ bind flud - * sl_flud
+ bind mode - * sl_mode
+ 
+-return "nb_info 4.10.0"
++return "nb_info 4.11.0"
+diff -ruN netbots4.10/superbitch.tcl netbots4.11/superbitch.tcl
+--- netbots4.10/superbitch.tcl	2026-10-21 15:31:16.253157787 +0000
++++ netbots4.11/superbitch.tcl	2026-10-21 15:31:16.250361943 +0000
+@@ -1,59 +1,53 @@
+-# netbots.tcl v4.10 (8 August 2005)
++# netbots.tcl v4.11 (security & bugfix release, based on v4.10 by slennox)
+ # Copyright 1998-2005 by slennox
+ # http://www.egghelp.org/
+ 
+ ## superbitch.tcl component script ##
+ 
+ proc sb_bitch {nick uhost hand chan mode opped} {
+-  global botnick sb_chans sb_canop sb_canopany sb_canopflags sb_checkop sb_note sb_remove
+-  if {$mode == "+o"} {
+-    if {$nick != $botnick} {
+-      if {(($opped != $botnick) && ($nick != $opped) && ([onchan $nick $chan]) && (![wasop $opped $chan]) && (($sb_chans == "") || ([lsearch -exact $sb_chans [string tolower $chan]] != -1)))} {
+-        if {![matchattr [nick2hand $opped $chan] $sb_canopflags $chan]} {
+-          if {$sb_canopany == "" || ![matchattr $hand $sb_canopany $chan]} {
+-            pushmode $chan -o $opped
+-            pushmode $chan -o $nick
+-            if {$sb_remove && [validuser $hand] && [matchattr $hand o|o $chan]} {
+-              chattr $hand -o+d|-o+d $chan
+-              if {[info commands sendnote] != ""} {
+-                foreach recipient $sb_note {
+-                  if {[validuser $recipient]} {
+-                    sendnote SUPERBITCH $recipient "Removed +o from $hand (opped $opped on $chan)"
+-                  }
+-                }
+-              }
+-            }
+-          }
+-        } else {
+-          if {((($sb_canopany == "") || (![matchattr $hand $sb_canopany $chan])) && (($sb_canop == "") || (![matchattr $hand $sb_canop $chan])))} {
+-            pushmode $chan -o $opped
+-            pushmode $chan -o $nick
+-            if {$sb_remove && [validuser $hand] && [matchattr $hand o|o $chan]} {
+-              chattr $hand -o+d|-o+d $chan
+-              if {[info commands sendnote] != ""} {
+-                foreach recipient $sb_note {
+-                  if {[validuser $recipient]} {
+-                    sendnote SUPERBITCH $recipient "Removed +o from $hand (opped $opped on $chan)"
+-                  }
+-                }
+-              }
+-            }
+-          }
++  global botnick sb_chans sb_canop sb_canopany sb_canopflags sb_checkop
++  if {$mode != "+o" || ![validchan $chan]} {return 0}
++  if {$sb_chans != "" && [lsearch -exact $sb_chans [string tolower $chan]] == -1} {return 0}
++  if {![string equal -nocase $nick $botnick]} {
++    if {![string equal -nocase $opped $botnick] && ![string equal -nocase $nick $opped] && [onchan $nick $chan] && ![wasop $opped $chan]} {
++      if {![matchattr [nick2hand $opped $chan] $sb_canopflags $chan]} {
++        # opped user isn't allowed ops: only sb_canopany users may do this
++        if {$sb_canopany == "" || ![matchattr $hand $sb_canopany $chan]} {
++          sb_punish $nick $hand $chan $opped
+         }
+-      }
+-    } else {
+-      if {(($sb_checkop) && (![matchattr [nick2hand $opped $chan] o|o $chan]) && (($sb_chans == "") || ([lsearch -exact $sb_chans [string tolower $chan]] != -1)))} {
+-        pushmode $chan -o $opped
+-        putlog "superbitch: opped non +o user $opped on $chan - reversing."
+-        nb_sendcmd * rbroadcast "superbitch: opped non +o user $opped on $chan - reversing."
++      } elseif {($sb_canopany == "" || ![matchattr $hand $sb_canopany $chan]) && ($sb_canop == "" || ![matchattr $hand $sb_canop $chan])} {
++        sb_punish $nick $hand $chan $opped
+       }
+     }
++  } elseif {$sb_checkop && ![matchattr [nick2hand $opped $chan] o|o $chan]} {
++    pushmode $chan -o $opped
++    putlog "superbitch: opped non +o user $opped on $chan - reversing."
++    nb_sendcmd * rbroadcast "superbitch: opped non +o user $opped on $chan - reversing."
+   }
+   return 0
+ }
+ 
++proc sb_punish {nick hand chan opped} {
++  global sb_note sb_remove
++  if {[botisop $chan]} {
++    pushmode $chan -o $opped
++    pushmode $chan -o $nick
++  }
++  if {$sb_remove && [validuser $hand] && [matchattr $hand o|o $chan]} {
++    chattr $hand -o+d|-o+d $chan
++    if {[info commands sendnote] != ""} {
++      foreach recipient $sb_note {
++        if {[validuser $recipient]} {
++          sendnote SUPERBITCH $recipient "Removed +o from $hand (opped $opped on $chan)"
++        }
++      }
++    }
++  }
++  return
++}
++
+ set sb_chans [split [string tolower $sb_chans]] ; set sb_note [split $sb_note]
+ 
+ bind mode - * sb_bitch
+ 
+-return "nb_info 4.10.0"
++return "nb_info 4.11.0"
