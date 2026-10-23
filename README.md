@@ -1,6 +1,6 @@
 # Tcl and Other Files
 
-This repository contains a mixed collection of Eggdrop/Tcl scripts, security hardening files, Linux system validation scripts, and supporting documentation. The project appears designed for IRC bot automation, bot protection, local network monitoring, and security auditing workflows.
+This repository contains a mixed collection of Eggdrop/Tcl scripts, security hardening files, Linux system validation scripts, and supporting documentation. These projects are designed for IRC bot automation, bot protection, local network monitoring, and security auditing workflows.
 
 ## Repository Overview
 
