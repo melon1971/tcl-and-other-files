@@ -22,12 +22,12 @@ This repository contains a mixed collection of Eggdrop/Tcl scripts, security har
 | `mafia.tcl` | Tcl script | Mafia-style crime/RPG game engine for Eggdrop. |
 | `restrict.tcl` | Tcl script | Restriction script that turns on +R for managed channels after trusted kicks. |
 | `spychan.tcl` | Tcl script | Botnet relay and channel spy script for monitoring channel events across linked Eggdrop bots. |
-| `masterhelp.tcl` | Tcl script | Helper script likely used for help output in Eggdrop bot environments. |
+| `masterhelp.tcl` | Tcl script | Helper script that's used for help output in Eggdrop bot environments. |
 | `mem.tcl` | Tcl script | Utility / memory or monitor script for TCL-based bot usage. |
 | `talkbot.tcl` | Tcl script | A talk bot or IRC interaction script. |
 | `talkbot_cost.tcl` | Tcl script | Cost-related variant of the talk bot logic. |
-| `whocom.tcl` | Tcl script | Probably a who command or identity helper for IRC bot functions. |
-| `sysinfo.tcl` | Tcl script | System information script for bot use or diagnostics. |
+| `whocom.tcl` | Tcl script | A who command and identity helper for IRC bot functions. |
+| `sysinfo.tcl` | Tcl script | System information script for system information. |
 
 ### Configuration and Data Files
 
