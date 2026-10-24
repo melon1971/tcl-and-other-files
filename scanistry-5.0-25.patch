@@ -1,0 +1,517 @@
+diff -ruN orig/scanistry-5.0-24-source/DEBIAN/control src/scanistry-5.0-25-source/DEBIAN/control
+--- orig/scanistry-5.0-24-source/DEBIAN/control	2026-10-22 08:57:03.000000000 +0000
++++ src/scanistry-5.0-25-source/DEBIAN/control	2026-10-24 21:44:28.497911314 +0000
+@@ -1,8 +1,8 @@
+ Package: scanistry
+-Version: 5.0-24
++Version: 5.0-25
+ Architecture: amd64
+ Maintainer: Scanistry Project <root@localhost>
+-Installed-Size: 1344
++Installed-Size: 1360
+ Depends: python3 (>= 3.10), passwd, ufw, aide, lynis, debsecan, rkhunter, clamav, clamav-daemon, clamav-freshclam, tshark, tcpdump, iproute2, procps, lsof, net-tools, apt, nftables, ca-certificates, pkexec | policykit-1, polkitd | policykit-1, sudo, unattended-upgrades, openssl, python3-pyqt6, python3-pyqt6.qtwebengine, rsyslog, xdg-utils, libnotify-bin, suricata, apparmor-utils, libcap2-bin
+ Recommends: suricata-update
+ Suggests: polkit-kde-agent-1 | lxqt-policykit | mate-polkit | xfce-polkit | lxpolkit | polkit-gnome | policykit-1-gnome | pantheon-agent-polkit, gnome-shell-extension-appindicator, xfce4-notifyd | notification-daemon | mako-notifier | dunst
+diff -ruN orig/scanistry-5.0-24-source/DEBIAN/md5sums src/scanistry-5.0-25-source/DEBIAN/md5sums
+--- orig/scanistry-5.0-24-source/DEBIAN/md5sums	2026-10-22 08:57:03.000000000 +0000
++++ src/scanistry-5.0-25-source/DEBIAN/md5sums	2026-10-24 21:44:28.487138934 +0000
+@@ -2,7 +2,7 @@
+ 47b709358cc4e5757642f9e463da6096  etc/apparmor.d/scanistry
+ dbb554f88c74a8b4d98f31a3359bf8cb  etc/logrotate.d/scanistry
+ 0a0cdc29676bbf2dbe8f2b2cc924d6f6  etc/modprobe.d/60-scanistry-disable-unused-protocols.conf
+-33676a1806127cea0941b16f21f38b28  etc/scanistry/scanistry.conf
++af3b4f568e1c67ac6e2bb363d5482444  etc/scanistry/scanistry.conf
+ 1a37a53cea1a520fd2fe1ee25bfd4f29  etc/sysctl.d/60-scanistry-hardening.conf
+ f3e2f9237f7c0be9c445c49e769a1797  etc/systemd/system/dailyaidecheck.service.d/scanistry.conf
+ 17e04939f1bdd2a54df4f146717a05bc  etc/xdg/autostart/scanistry-tray.desktop
+@@ -19,7 +19,7 @@
+ a4b5f9a991a84ac773fd0e50d09ea237  usr/lib/scanistry/scanistry-suricata-setup
+ b2d98509986ff364ada6340eb4190be4  usr/lib/scanistry/scanistry-tls
+ 409b1704d607ac859edd1d9cffde1d6e  usr/lib/scanistry/scanistry-uninstall
+-53e8d41990b00bb9792ad369c918895b  usr/lib/scanistry/scanistry.py
++f965e272592a37647fcdbc934d651051  usr/lib/scanistry/scanistry.py
+ fe234a175ac3697a2c278b75f9c80e67  usr/lib/tmpfiles.d/scanistry-aide.conf
+ 2b86c34a3dc9c3203da0e7e546d8df90  usr/share/applications/scanistry.desktop
+ 1ea6e362e8a60cc27f72fac38fabe11a  usr/share/doc/scanistry/CHANGELOG-4.0.10
+@@ -89,8 +89,8 @@
+ 4d105352f783de80044877155abbe8fa  usr/share/doc/scanistry/CHANGELOG-5.0-7
+ 587bf78785818130983130cad58b624d  usr/share/doc/scanistry/CHANGELOG-5.0-8
+ 5f5dd227740def0a332dbff9d3eb16a3  usr/share/doc/scanistry/CHANGELOG-5.0-9
+-cb7dabbad05c1940bf21593bc7f0b07c  usr/share/doc/scanistry/README.Debian
+-27aa810a2546b5aca5de65e5f536d3e5  usr/share/doc/scanistry/README.md
++18463696330af3876043396c07ec230a  usr/share/doc/scanistry/README.Debian
++c874a89cad62d2f37ff60f95888661e3  usr/share/doc/scanistry/README.md
+ a2e82ec94fadf2c7bd9f06273fa3d32d  usr/share/doc/scanistry/copyright
+ 67b1969c599ebccbac8fa0e3ab2a9cce  usr/share/icons/hicolor/128x128/apps/scanistry-tray-alert.png
+ 42c418e927b4a30c4f0c5702fe1efa29  usr/share/icons/hicolor/128x128/apps/scanistry-tray.png
+@@ -121,3 +121,4 @@
+ 2f60cfd6de133cccfea4b8029fccdff0  usr/share/icons/hicolor/scalable/apps/scanistry.svg
+ 61b2d6831d928f335bb30cd482cf42e7  usr/share/man/man1/scanistry-gui.1.gz
+ 5ac0496670ae6d823190f231535ddfaa  usr/share/man/man1/scanistryctl.1.gz
++61b90f5414570831e7f1257e4641aad8  usr/share/doc/scanistry/CHANGELOG-5.0-25
+diff -ruN orig/scanistry-5.0-24-source/DEBIAN/postinst src/scanistry-5.0-25-source/DEBIAN/postinst
+--- orig/scanistry-5.0-24-source/DEBIAN/postinst	2026-10-21 12:00:00.000000000 +0000
++++ src/scanistry-5.0-25-source/DEBIAN/postinst	2026-10-24 21:42:16.465870484 +0000
+@@ -207,6 +207,17 @@
+     # (key, superseded default, current default)
+     for k,old,new in (('scan_stagger_seconds',3600,86400),):
+         if c.get(k)==old: c[k]=new
++    # 5.0-25: URLhaus answers HTTP 410 Gone at its keyless download addresses (since 2026-10-23). Take them out
++    # of feed_urls and add the urlhaus_auth_key setting that brings URLhaus back with a free abuse.ch key.
++    fu=c.get('feed_urls')
++    if isinstance(fu,list):
++        gone=[u for u in fu if isinstance(u,str) and u.lower().startswith('https://urlhaus.abuse.ch/downloads/')]
++        if gone:
++            c['feed_urls']=[u for u in fu if u not in gone]
++            print('Scanistry: removed %s from feed_urls: URLhaus now needs an abuse.ch Auth-Key (HTTP 410 Gone without one).' % ', '.join(gone))
++            if not c.get('urlhaus_auth_key'):
++                print('  To keep URLhaus: get a free key at https://auth.abuse.ch/, set "urlhaus_auth_key" in %s, then: sudo systemctl restart scanistry' % p)
++    c.setdefault('urlhaus_auth_key','')
+     # Keys nothing reads any more; leaving them in the file only invites an
+     # operator to tune a setting that has no effect.
+     for k in ('max_report_read_mb',):
+diff -ruN orig/scanistry-5.0-24-source/etc/scanistry/scanistry.conf src/scanistry-5.0-25-source/etc/scanistry/scanistry.conf
+--- orig/scanistry-5.0-24-source/etc/scanistry/scanistry.conf	2026-10-21 12:00:00.000000000 +0000
++++ src/scanistry-5.0-25-source/etc/scanistry/scanistry.conf	2026-10-24 21:42:16.464947180 +0000
+@@ -32,9 +32,9 @@
+   "fallback_allow_udp": [],
+   "feed_urls": [
+     "https://www.spamhaus.org/drop/drop.txt",
+-    "https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt",
+-    "https://urlhaus.abuse.ch/downloads/text/"
++    "https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt"
+   ],
++  "urlhaus_auth_key": "",
+   "allow_ips": [
+     "127.0.0.0/8",
+     "10.0.0.0/8",
+diff -ruN orig/scanistry-5.0-24-source/tests/README src/scanistry-5.0-25-source/tests/README
+--- orig/scanistry-5.0-24-source/tests/README	2026-10-22 08:56:01.000000000 +0000
++++ src/scanistry-5.0-25-source/tests/README	2026-10-24 21:43:55.082211823 +0000
+@@ -152,3 +152,8 @@
+     5.0-24: the debsecan report moves an entry from FIX AVAILABLE to ALREADY FIXED only when the installed package's
+     Debian changelog (or its source package's) names that CVE; the real ClamAV 1.4.6~deb13u1 case, partial and missing
+     changelogs, packages not installed, TEMP- entries and odd package names. No root needed.
++
++test_5025.py PATH/scanistry.py
++    5.0-25: URLhaus's retired keyless addresses are dropped from feed_urls; urlhaus_auth_key adds the keyed export,
++    whose key never reaches the log or the state files; online CSV rows only; the Logs page explains a 410/404/401
++    instead of advising a network check. Downloads stubbed. No root needed.
+diff -ruN orig/scanistry-5.0-24-source/tests/test_5025.py src/scanistry-5.0-25-source/tests/test_5025.py
+--- orig/scanistry-5.0-24-source/tests/test_5025.py	1970-01-01 00:00:00.000000000 +0000
++++ src/scanistry-5.0-25-source/tests/test_5025.py	2026-10-24 21:43:23.206581868 +0000
+@@ -0,0 +1,109 @@
++#!/usr/bin/python3
++"""5.0-25 checks, no root needed: URLhaus without the retired keyless addresses. Real case (2026-10-24): every refresh
++logged "https://urlhaus.abuse.ch/downloads/text/ could not be reached: HTTP Error 410: Gone" with the advice to check
++network connectivity; abuse.ch had switched the keyless lists off on 2026-10-23. Downloads are stand-ins.
++Usage: test_5025.py path/to/scanistry.py"""
++import sys, os, io, json, tempfile, types
++from pathlib import Path
++import urllib.error
++os.environ['SCANISTRY_INPROCESS_BROKER'] = '1'
++PATH = sys.argv[1]
++F = []
++def check(name, ok):
++    print(('PASS  ' if ok else 'FAIL  ') + name)
++    if not ok: F.append(name)
++src = open(PATH).read()
++m = types.ModuleType('scanistry_5025'); m.__file__ = PATH; sys.argv = [PATH]
++exec(compile(src.replace('CFG=load_conf()', 'CFG=dict(DEFAULTS)', 1), PATH, 'exec'), m.__dict__)
++LOG = []
++m.log = lambda msg, level='INFO': LOG.append((level, str(msg)))
++m.prune_expired_blocks = lambda: None
++d = Path(tempfile.mkdtemp())
++m.FEEDS = d / 'feeds.json'; m.BLOCKS = d / 'blocks.json'; m.FEED_SOURCES = d / 'feed-sources.json'
++KEY = 'a1B2c3D4e5F6a7B8c9D0e1F2a3B4c5D6e7F8a9B0c1D2e3F4'
++SPAM = 'https://www.spamhaus.org/drop/drop.txt'
++FEODO = 'https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt'
++OLD = 'https://urlhaus.abuse.ch/downloads/text/'
++
++def configure(**kw):
++    base = {k: v for k, v in m.DEFAULTS.items()}
++    base.update(kw); m.CFG.clear(); m.CFG.update(base); LOG.clear(); m._normalize_config()
++
++# --- configuration -------------------------------------------------------------------------------------------------
++configure(feed_urls=[SPAM, FEODO, OLD])
++check('retired URLhaus address is dropped from feed_urls', m.CFG['feed_urls'] == [SPAM, FEODO])
++check('no key: only the two working sources are fetched', [u for u, _ in m._feed_fetch_list()] == [SPAM, FEODO])
++check('no key: the log says how to bring URLhaus back', any('auth.abuse.ch' in x and 'urlhaus_auth_key' in x for _, x in LOG))
++configure(feed_urls=[SPAM, 'https://urlhaus.abuse.ch/downloads/text_online/'])
++check('text_online is dropped too', m.CFG['feed_urls'] == [SPAM])
++configure(feed_urls=[OLD])
++check('only the retired address: defaults come back', m.CFG['feed_urls'] == m.DEFAULTS['feed_urls'])
++configure(feed_urls=[SPAM, FEODO, OLD], urlhaus_auth_key='  ' + KEY + ' ')
++fl = m._feed_fetch_list()
++check('key set: URLhaus export is a third source', len(fl) == 3 and fl[2][0] == m.URLHAUS_EXPORT_LABEL)
++check('key set: fetched address carries the key', fl[2][1] == f'https://urlhaus-api.abuse.ch/v2/files/exports/{KEY}/recent.csv')
++check('key set: label has no key', KEY not in fl[2][0])
++configure(feed_urls=[SPAM, f'https://urlhaus-api.abuse.ch/v2/files/exports/{KEY}/recent.csv'])
++check('keyed address pasted into feed_urls becomes urlhaus_auth_key', m.CFG['urlhaus_auth_key'] == KEY and m.CFG['feed_urls'] == [SPAM])
++check('...and the key is not in that log line', not any(KEY in x for _, x in LOG))
++configure(urlhaus_auth_key='short')
++check('malformed key is refused', m.CFG['urlhaus_auth_key'] == '' and len(m._feed_fetch_list()) == 2)
++configure(urlhaus_auth_key=KEY + '/../x')
++check('key with a path character is refused', m.CFG['urlhaus_auth_key'] == '')
++check('feed kind of the export is urlhaus', m._feed_kind(m.URLHAUS_EXPORT_LABEL) == 'urlhaus')
++
++# --- downloads -----------------------------------------------------------------------------------------------------
++CSV = ('################################################################\n'
++       '# abuse.ch URLhaus Database Dump (CSV - recent URLs)           #\n'
++       '# id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter\n'
++       '"3700001","2026-10-24 10:00:05","http://9.9.9.9:44123/i","online","2026-10-24 10:00:05","malware_download","32-bit,elf,mips,Mozi","https://urlhaus.abuse.ch/url/3700001/","geenensp"\n'
++       '"3700002","2026-10-24 10:01:00","https://evil.example.com/a.exe","online","2026-10-24 10:01:00","malware_download","exe","https://urlhaus.abuse.ch/url/3700002/","anonymous"\n'
++       '"3700003","2026-10-20 08:00:00","http://gone.example.net/b.sh","offline","","malware_download","sh","https://urlhaus.abuse.ch/url/3700003/","anonymous"\n'
++       '"3700004","2026-10-24 11:00:00","http://bad.example.org","online","2026-10-24 11:00:00","malware_download","","https://urlhaus.abuse.ch/url/3700004/","x"\n').encode()
++BODY = {SPAM: b'1.2.3.0/24 ; SBL1\n', FEODO: b'# Feodo\n5.6.7.8\n'}
++STATE = {'urlhaus': 'ok'}
++SEEN = []
++class R(io.BytesIO):
++    def __enter__(s): return s
++    def __exit__(s, *a): pass
++class O:
++    def open(s, req, timeout=30):
++        SEEN.append(req.full_url)
++        if 'urlhaus' in req.full_url:
++            if 'urlhaus.abuse.ch/downloads' in req.full_url or STATE['urlhaus'] == '410':
++                raise urllib.error.HTTPError(req.full_url, 410, 'Gone', {}, None)
++            if STATE['urlhaus'] == '401': raise urllib.error.HTTPError(req.full_url, 401, 'Unauthorized', {}, None)
++            if STATE['urlhaus'] == 'leak': raise OSError(f'cannot open {req.full_url}')
++            return R(CSV)
++        return R(BODY[req.full_url])
++m._FEED_OPENER = O()
++
++configure(feed_urls=[SPAM, FEODO], urlhaus_auth_key=KEY, feed_auto_block=False)
++r = m.feed_update(); f = json.loads(m.FEEDS.read_text())
++check('three of three sources reached', r.get('sources_ok', r.get('hits')) in (3, None) and not f['errors'])
++check('online URLhaus hosts listed', {'evil.example.com', 'bad.example.org'} <= set(f['domains']) and '9.9.9.9/32' in f['ips'])
++check('offline URLhaus rows left out', 'gone.example.net' not in f['domains'])
++check('urlhaus.abuse.ch reference links are not taken for malware hosts', 'urlhaus.abuse.ch' not in f['domains'])
++check('feeds.json does not contain the key', KEY not in m.FEEDS.read_text() and KEY not in m.FEED_SOURCES.read_text())
++
++STATE['urlhaus'] = '401'; LOG.clear()
++r = m.feed_update(); f = json.loads(m.FEEDS.read_text())
++check('refused key: last good URLhaus copy is kept', 'evil.example.com' in f['domains'])
++check('refused key: key not in log or errors', not any(KEY in x for _, x in LOG) and KEY not in m.FEEDS.read_text())
++STATE['urlhaus'] = 'leak'; LOG.clear(); m.feed_update()
++check('an error message that quotes the address is redacted', not any(KEY in x for _, x in LOG) and KEY not in m.FEEDS.read_text())
++
++# --- the Logs page -------------------------------------------------------------------------------------------------
++row = m._scanistry_explain(f'2026-10-24T16:22:38.120000+00:00 ERROR feed update failed {OLD}: HTTP Error 410: Gone', {})
++check('the real 410 line: "Threat list retired" with the Auth-Key steps',
++      row and row['title'] == 'Threat list retired' and 'urlhaus_auth_key' in row.get('fix', '') and 'auth.abuse.ch' in row.get('fix', ''))
++check('the real 410 line no longer says to check network connectivity', row and 'connectivity' not in row.get('fix', ''))
++row = m._scanistry_explain(f'2026-10-24T16:22:38.120000+00:00 ERROR feed update failed {SPAM}: The read operation timed out', {})
++check('a timeout keeps the old title', row and row['title'] == 'Threat list download failed')
++a = m._feed_http_advice('https://example.org/list.txt', 'HTTP Error 404: Not Found')
++check('404 from another list: retired, change feed_urls', a and 'feed_urls' in a[1])
++a = m._feed_http_advice(m.URLHAUS_EXPORT_LABEL, 'HTTP Error 401: Unauthorized')
++check('401 from the export: check the key', a and 'urlhaus_auth_key' in a[1])
++
++print('\n' + ('ALL PASS' if not F else f'{len(F)} FAILED: ' + ', '.join(F)))
++sys.exit(1 if F else 0)
+diff -ruN orig/scanistry-5.0-24-source/usr/lib/scanistry/scanistry.py src/scanistry-5.0-25-source/usr/lib/scanistry/scanistry.py
+--- orig/scanistry-5.0-24-source/usr/lib/scanistry/scanistry.py	2026-10-22 08:54:26.000000000 +0000
++++ src/scanistry-5.0-25-source/usr/lib/scanistry/scanistry.py	2026-10-24 21:41:50.223650202 +0000
+@@ -80,7 +80,7 @@
+     _drop_privileges()
+ 
+ APP='scanistry'
+-VERSION_FALLBACK='5.0-24'
++VERSION_FALLBACK='5.0-25'
+ 
+ def _installed_version():
+     try:
+@@ -262,6 +262,16 @@
+ AIDE_DB_NEW=Path('/var/lib/aide/aide.db.new')
+ MAX_BODY=1024*1024
+ MAX_FEED_BYTES=8*1024*1024
++# 5.0-25: URLhaus stopped serving its lists without an Auth-Key on 2026-10-23 (the old
++# https://urlhaus.abuse.ch/downloads/... addresses answer HTTP 410 Gone). The keyed export is a CSV of the last
++# 30 days with one row per URL, larger than the old plain-text list, so it gets its own download ceiling.
++# Only the "online" rows are kept, which is a few thousand entries.
++URLHAUS_EXPORT='https://urlhaus-api.abuse.ch/v2/files/exports/{key}/recent.csv'
++URLHAUS_EXPORT_LABEL='https://urlhaus-api.abuse.ch/v2/files/exports/(urlhaus_auth_key)/recent.csv'
++MAX_URLHAUS_EXPORT_BYTES=64*1024*1024
++_URLHAUS_RETIRED_RE=re.compile(r'(?i)^https://urlhaus\.abuse\.ch/downloads/')
++_URLHAUS_KEYED_RE=re.compile(r'(?i)^https://urlhaus-api\.abuse\.ch/v2/files/exports/([^/?#]+)/')
++_URLHAUS_KEY_RE=re.compile(r'[A-Za-z0-9_-]{16,128}')
+ 
+ class _HTTPSOnlyRedirect(urllib.request.HTTPRedirectHandler):
+     # The HTTPS-only rule for feeds must hold across redirects too: urllib would
+@@ -592,6 +602,9 @@
+  # reachable while it is on.
+  'fallback_firewall':True,'fallback_allow_tcp':[],'fallback_allow_udp':[],
+  'feed_urls':['https://www.spamhaus.org/drop/drop.txt','https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.txt'],
++ # 5.0-25: abuse.ch Auth-Key (free, https://auth.abuse.ch/). When set, URLhaus's keyed export is downloaded as a
++ # third source. Empty: URLhaus is not used (its keyless lists answer HTTP 410 since 2026-10-23).
++ 'urlhaus_auth_key':'',
+  'allow_ips':['127.0.0.0/8','10.0.0.0/8','172.16.0.0/12','192.168.0.0/16','::1/128','fc00::/7'],
+ }
+ 
+@@ -739,7 +752,35 @@
+     dropped=[x for x in CFG['feed_urls'][:32] if isinstance(x,str) and x.startswith('http://')]
+     if dropped: log(f'ignoring {len(dropped)} feed URL(s) that are not HTTPS: {", ".join(str(d)[:120] for d in dropped)}','WARN')
+     CFG['feed_urls']=[str(x)[:2048] for x in CFG['feed_urls'][:32] if isinstance(x,str) and x.startswith('https://')]
+-    if not CFG['feed_urls']: CFG['feed_urls']=list(DEFAULTS['feed_urls'])
++    # 5.0-25: URLhaus. The keyless download addresses are gone (HTTP 410 since 2026-10-23), so they are dropped
++    # rather than failing every refresh. The keyed export is not set in feed_urls: the key would end up in the
++    # log, in feeds.json and on the Threat Intelligence page. It comes from urlhaus_auth_key instead, and a keyed
++    # export address someone pasted into feed_urls is turned into that setting.
++    k=CFG.get('urlhaus_auth_key')
++    k=k.strip() if isinstance(k,str) else ''
++    keep=[]; retired=[]
++    for u in CFG['feed_urls']:
++        if _URLHAUS_RETIRED_RE.match(u): retired.append(u); continue
++        mk=_URLHAUS_KEYED_RE.match(u)
++        if mk:
++            if not k: k=urllib.parse.unquote(mk.group(1)).strip()
++            log('feed_urls: a keyed URLhaus export address was moved to urlhaus_auth_key, so the key stays out of '
++                'the log and the dashboard (set urlhaus_auth_key instead of the address)','WARN')
++            continue
++        keep.append(u)
++    if k and not _URLHAUS_KEY_RE.fullmatch(k):
++        log('urlhaus_auth_key is not a valid abuse.ch Auth-Key (letters, digits, - and _, 16 to 128 characters); '
++            'URLhaus is not downloaded','WARN')
++        k=''
++    CFG['urlhaus_auth_key']=k
++    if retired and not k:
++        log(f'feed_urls: ignoring {", ".join(retired)}: URLhaus no longer serves its lists without an Auth-Key '
++            '(HTTP 410 Gone). To keep URLhaus, get a free key at https://auth.abuse.ch/ and set urlhaus_auth_key '
++            f'in {CONF}','WARN')
++    elif retired:
++        log(f'feed_urls: {", ".join(retired)} replaced by the keyed URLhaus export (urlhaus_auth_key is set)','INFO')
++    CFG['feed_urls']=keep
++    if not CFG['feed_urls'] and not k: CFG['feed_urls']=list(DEFAULTS['feed_urls'])
+     # clamav_scan_paths: absolute paths only; anything malformed falls back to /home.
+     sp=CFG.get('clamav_scan_paths')
+     if not isinstance(sp,list): sp=list(DEFAULTS['clamav_scan_paths'])
+@@ -3105,7 +3146,10 @@
+     if msg.startswith('threat feed update: every source failed'):
+         return _row(ts,'warn','Threat lists could not be updated','None of the threat-intelligence sources could be reached (no network connectivity?). Scanistry kept the previous lists and retries every 15 minutes.',raw)
+     mm=re.match(r'feed update failed (\S+): (.*)$',msg)
+-    if mm: return _row(ts,'warn','Threat list download failed',f'{mm.group(1)} could not be reached: {mm.group(2)[:200]}',raw)
++    if mm:
++        adv=_feed_http_advice(mm.group(1),mm.group(2))
++        if adv: return _row(ts,'warn',adv[0],f'{mm.group(1)} answered: {mm.group(2)[:200]}',raw,fix=adv[1])
++        return _row(ts,'warn','Threat list download failed',f'{mm.group(1)} could not be reached: {mm.group(2)[:200]}',raw)
+     mm=re.match(r'blocked address by (\S+?);?\s*expires=(\d+)',msg)
+     if mm:
+         until=datetime.fromtimestamp(int(mm.group(2))).strftime('%b %d, %Y')
+@@ -4432,7 +4476,7 @@
+     u=str(url).lower()
+     if 'spamhaus.org' in u and 'drop' in u: return 'spamhaus-drop'
+     if 'feodotracker.abuse.ch' in u: return 'feodo'
+-    if 'urlhaus.abuse.ch' in u: return 'urlhaus'
++    if 'urlhaus.abuse.ch' in u or 'urlhaus-api.abuse.ch' in u: return 'urlhaus'
+     return 'other'
+ 
+ def explain_block(key,meta):
+@@ -5410,9 +5454,66 @@
+             block_ip(ip,f'{n} failed authentication events','auth-monitor')
+     return {'failed':fails,'successful':success[:100]}
+ 
++def _feed_fetch_list():
++    """[(label, address to fetch)]. The label is what the log, feeds.json and the dashboard show and what the
++    per-source cache is keyed by; only the URLhaus export differs from its label, by the Auth-Key in its path."""
++    out=[(str(u),str(u)) for u in (CFG.get('feed_urls') or [])]
++    k=CFG.get('urlhaus_auth_key') or ''
++    if isinstance(k,str) and _URLHAUS_KEY_RE.fullmatch(k):
++        out.append((URLHAUS_EXPORT_LABEL,URLHAUS_EXPORT.format(key=urllib.parse.quote(k,safe=''))))
++    return out
++
++def _redact_feed_key(s):
++    """S with the URLhaus Auth-Key taken out, for anything that is logged or stored."""
++    s=str(s); k=CFG.get('urlhaus_auth_key') or ''
++    if isinstance(k,str) and len(k)>=8: s=s.replace(k,'(urlhaus_auth_key)').replace(urllib.parse.quote(k,safe=''),'(urlhaus_auth_key)')
++    return re.sub(r'(?i)(urlhaus-api\.abuse\.ch/v2/files/exports/)[^/\s]+','\\1(urlhaus_auth_key)',s)
++
++def _urlhaus_csv_urls(text):
++    """The URL column of URLhaus's CSV export, online rows only, one per line (the plain-text form the feed parser
++    already reads). Columns: id,dateadded,url,url_status,last_online,threat,tags,urlhaus_link,reporter. The
++    urlhaus_link column (https://urlhaus.abuse.ch/url/N/) is never taken for a malware host."""
++    import csv
++    rows=(l for l in text.splitlines() if l.strip() and not l.lstrip().startswith('#'))
++    out=[]
++    for row in csv.reader(rows):
++        if len(row)<4: continue
++        u=row[2].strip(); st=row[3].strip().lower()
++        if st!='online' or not re.match(r'(?i)https?://',u): continue
++        out.append(u)
++    return '\n'.join(out)
++
++def _feed_http_advice(label,err):
++    """(title, what to do) for a feed download that failed with an HTTP status that retrying will not fix, or None."""
++    m=re.search(r'HTTP Error (\d{3})',str(err))
++    if not m: return None
++    code=int(m.group(1)); urlhaus='urlhaus' in str(label).lower()
++    if code in (404,410):
++        if urlhaus and 'urlhaus-api' not in str(label).lower():
++            return ('Threat list retired',
++                    'URLhaus stopped serving its lists without an abuse.ch Auth-Key (HTTP 410 Gone since 2026-10-23); '
++                    'retrying will not help. Get a free key at https://auth.abuse.ch/, put it in "urlhaus_auth_key" in '
++                    '/etc/scanistry/scanistry.conf, then: sudo systemctl restart scanistry. Scanistry 5.0-25 drops the '
++                    'old address by itself. Without a key the other lists keep working.')
++        return ('Threat list retired',
++                f'The server says this list is no longer at that address (HTTP {code}); retrying will not help. Find '
++                'its new address on the publisher\'s site and change it in "feed_urls" in /etc/scanistry/scanistry.conf, '
++                'or remove it. The other lists keep working.')
++    if code in (401,403):
++        if urlhaus:
++            return ('Threat list refused the download',
++                    f'URLhaus refused the Auth-Key (HTTP {code}). Check "urlhaus_auth_key" in /etc/scanistry/scanistry.conf '
++                    'against the key shown at https://auth.abuse.ch/ (generate a new one there if needed), then: '
++                    'sudo systemctl restart scanistry.')
++        return ('Threat list refused the download',
++                f'The server refused the download (HTTP {code}): the list may now need an account or key. Check the '
++                'publisher\'s site, then change or remove it in "feed_urls" in /etc/scanistry/scanistry.conf.')
++    return None
++
+ def feed_update():
+     prune_expired_blocks()
+-    urls=CFG.get('feed_urls',[]); hits=0; domains=set(); networks=set(); errors=[]
++    sources=_feed_fetch_list(); fetch=dict(sources)
++    urls=[lab for lab,_ in sources]; hits=0; domains=set(); networks=set(); errors=[]
+     # A URL feed (URLhaus and friends) carries hundreds of thousands of entries.
+     # Without a ceiling the sets, the JSON on disk and every later read of it grow
+     # with whatever the feed publishes that day; the daemon runs under MemoryMax=2G.
+@@ -5431,19 +5532,23 @@
+         try:
+             if urllib.parse.urlparse(str(url)).scheme!='https':
+                 raise ValueError('feed URL must use HTTPS')
+-            req=urllib.request.Request(str(url),headers={'User-Agent':f'scanistry/{VERSION}'})
++            keyed=url==URLHAUS_EXPORT_LABEL
++            cap=MAX_URLHAUS_EXPORT_BYTES if keyed else MAX_FEED_BYTES
++            req=urllib.request.Request(fetch.get(url,str(url)),headers={'User-Agent':f'scanistry/{VERSION}'})
+             with _FEED_OPENER.open(req,timeout=30) as r:
+                 # A total deadline, not just a per-read one: a server dripping a
+                 # byte every few seconds would otherwise hold the job lock for hours.
+-                buf=bytearray(); deadline=time.time()+120
+-                while len(buf)<=MAX_FEED_BYTES:
+-                    if time.time()>deadline: raise TimeoutError('feed download took longer than 120 seconds')
++                buf=bytearray(); deadline=time.time()+(300 if keyed else 120)
++                while len(buf)<=cap:
++                    if time.time()>deadline: raise TimeoutError(f'feed download took longer than {300 if keyed else 120} seconds')
+                     chunk=r.read(65536)
+                     if not chunk: break
+                     buf+=chunk
+                 data=bytes(buf)
+-            if len(data)>MAX_FEED_BYTES: raise ValueError('feed exceeds size limit')
++            if len(data)>cap: raise ValueError('feed exceeds size limit')
++            if data[:2]==b'PK': raise ValueError('the server sent a ZIP archive, not a plain list')
+             text=data.decode('utf-8','replace')
++            if keyed: text=_urlhaus_csv_urls(text)
+             for line in text.splitlines():
+                 line=line.strip()
+                 if not line or line.startswith('#'): continue
+@@ -5473,6 +5578,7 @@
+             hits+=1
+             fresh[str(url)]={'fetched':time.time(),'networks':sorted(s_nets),'domains':sorted(s_doms),'origin':s_origin}
+         except Exception as e:
++            e=_redact_feed_key(e)
+             errors.append(f'{url}: {e}'); log(f'feed update failed {url}: {e}','ERROR')
+     # A source that failed this run keeps what it listed last time (up to
+     # FEED_CARRY_MAX_AGE). Before this fix one timed-out source was simply left
+@@ -9385,7 +9491,7 @@
+ 
+ <div class="card" id="help-malware"><h2>Malware / Quarantine</h2><p>Quarantine moves a file out of place into a private vault, keeps it from running, and records where it came from. Enter an absolute path to scan one file with ClamAV; an infected file is quarantined (tick <b>Quarantine even if clean</b> to quarantine a file ClamAV does not flag). Infected files found by scheduled scans are listed under <b>Detections awaiting action</b> with a <b>Quarantine</b> button each. In <b>Quarantined files</b>, <b>Restore</b> puts a file back exactly where it was, with its original owner and permissions (setuid/setgid bits are not restored), and <b>Delete</b> removes it permanently; <b>Delete all</b> empties the vault. A file whose quarantine record is missing (an interrupted quarantine) has no recorded location, so it can only be deleted. Paths under core system directories (<code>/bin</code>, <code>/usr/lib</code>, <code>/etc</code> and similar) are refused unless you tick <b>Force</b>, so a false positive cannot disable a working system binary.</p><p><a href="#help-top">Back to contents</a></p></div>
+ 
+-<div class="card" id="help-threats"><h2>Threat Intelligence</h2><p>Scanistry keeps a local copy of public feeds (Spamhaus DROP, Feodo Tracker and URLhaus by default, set in <code>feed_urls</code>) and refreshes it every <code>feed_interval</code> seconds (12 hours). Each feed is capped at 8 MB on download and the stored indicator list at 200,000 entries per category, so a feed that suddenly publishes millions of entries cannot grow the daemon's memory or the state directory without limit; the page shows counts rather than downloading the indicator list itself. <b>Check reputation</b> searches that local copy only; nothing you enter is sent anywhere. With <code>feed_auto_block</code> on, feed addresses are blocked automatically, at most <code>feed_auto_block_limit</code> per refresh.</p><p>If an update reaches none of the sources (no network or DNS), the previous indicators are kept, the page says the last attempt failed, and the update is retried every 15 minutes until it succeeds. <b>Last updated</b> is the time of the last successful update.</p><p><a href="#help-top">Back to contents</a></p></div>
++<div class="card" id="help-threats"><h2>Threat Intelligence</h2><p>Scanistry keeps a local copy of public feeds (Spamhaus DROP and Feodo Tracker by default, set in <code>feed_urls</code>, plus URLhaus when <code>urlhaus_auth_key</code> is set) and refreshes it every <code>feed_interval</code> seconds (12 hours). Each feed is capped at 8 MB on download and the stored indicator list at 200,000 entries per category, so a feed that suddenly publishes millions of entries cannot grow the daemon's memory or the state directory without limit; the page shows counts rather than downloading the indicator list itself. <b>Check reputation</b> searches that local copy only; nothing you enter is sent anywhere. With <code>feed_auto_block</code> on, feed addresses are blocked automatically, at most <code>feed_auto_block_limit</code> per refresh.</p><p>If an update reaches none of the sources (no network or DNS), the previous indicators are kept, the page says the last attempt failed, and the update is retried every 15 minutes until it succeeds. <b>Last updated</b> is the time of the last successful update.</p><p><b>URLhaus</b> (malware download sites) has needed a free abuse.ch Auth-Key since 2026-10-23; its old addresses answer HTTP 410 Gone. To use it, sign in at https://auth.abuse.ch/, generate an Auth-Key, put it in <code>"urlhaus_auth_key"</code> in /etc/scanistry/scanistry.conf and run <code>sudo systemctl restart scanistry</code>. Scanistry then downloads the keyed export and keeps the URLs it lists as online. The key is never written to the log or shown here. Without a key the other lists work as before; a list that fails with HTTP 404 or 410 has moved or closed, and retrying will not bring it back.</p><p><a href="#help-top">Back to contents</a></p></div>
+ 
+ <div class="card" id="help-network"><h2>Ports &amp; Capture</h2><p>Live connections and listening ports come from <code>ss</code>. <b>Start capture</b> runs tcpdump for 5 to 3600 seconds and saves the capture under <code>/var/lib/scanistry/captures/</code>. Before 4.0.11-62 captures could come out missing or empty on Debian, whose tcpdump drops to its own <code>tcpdump</code> user and could not write into that root-only directory; Scanistry now opens the file itself and tcpdump writes into it. Saved captures are listed underneath with when they were recorded and their size. <b>Analyze</b> shows who talked to whom and on which port, busiest first, with the protocol breakdown folded away underneath. Since 4.0.11-88 it uses Scanistry's own built-in reader, which looks only at the link, IP and TCP/UDP headers. It is memory-safe, checks every length, and stops after 1 GB, 3 million packets or 60 seconds. A crafted capture can therefore at worst be rejected as corrupt, and Wireshark is not involved. <b>Deep analysis (Wireshark)</b>, under the results, decodes every protocol with tshark. Wireshark's decoders have a long history of security bugs, and the packets in a capture were chosen by whoever sent them. So tshark runs as a throwaway unprivileged user (systemd DynamicUser) with no network, a read-only system, Scanistry's state, logs and keys hidden, a system-call filter and a 512 MB memory cap. It never opens the capture itself: Scanistry passes it in on standard input. Set <code>capture_deep_analysis</code> to <code>false</code> in the configuration to remove the option entirely; <b>Delete</b> removes one capture and its results, <b>Delete all captures</b> removes every one (a capture still recording is stopped first). The filename box is there for a capture that is not in the list. Captures will not start with less than 1 GB free, stop early below 256 MB, and at most 3 run at once.</p><p><a href="#help-top">Back to contents</a></p></div>
+ 
+diff -ruN orig/scanistry-5.0-24-source/usr/share/doc/scanistry/CHANGELOG-5.0-25 src/scanistry-5.0-25-source/usr/share/doc/scanistry/CHANGELOG-5.0-25
+--- orig/scanistry-5.0-24-source/usr/share/doc/scanistry/CHANGELOG-5.0-25	1970-01-01 00:00:00.000000000 +0000
++++ src/scanistry-5.0-25-source/usr/share/doc/scanistry/CHANGELOG-5.0-25	2026-10-24 21:43:55.053986196 +0000
+@@ -0,0 +1,55 @@
++Scanistry 5.0-25
++
++URLhaus: the retired keyless download is dropped, and URLhaus comes back with a free abuse.ch Auth-Key.
++
++Seen on a real machine (2026-10-24): every threat-feed refresh logged
++    Threat list download failed
++    https://urlhaus.abuse.ch/downloads/text/ could not be reached: HTTP Error 410: Gone
++    What to do: Check network connectivity. Scanistry retries automatically every 15 minutes; one list being briefly
++    unavailable is not a problem.
++and the refresh reached 2 of 3 sources. The network was fine. On 2026-10-23 abuse.ch stopped serving the URLhaus lists
++without an Auth-Key: /downloads/text/, /downloads/text_online/ and the other keyless addresses answer 410 Gone. Retrying
++could never succeed, and after 7 days the carried-forward copy (5.0-1) would have expired and URLhaus's entries would
++have dropped out.
++
++Configuration
++- New setting "urlhaus_auth_key" (default ""). Get a free key by signing in at https://auth.abuse.ch/ and generating an
++  Auth-Key, put it in /etc/scanistry/scanistry.conf, then: sudo systemctl restart scanistry. Scanistry then downloads
++  URLhaus's keyed export (https://urlhaus-api.abuse.ch/v2/files/exports/KEY/recent.csv) as a third source and keeps
++  the URLs it lists as online.
++- The key is never written to the log, feeds.json, feed-sources.json or the dashboard: they show
++  .../exports/(urlhaus_auth_key)/recent.csv, and error messages are scrubbed of it. A keyed export address pasted
++  into feed_urls is turned into urlhaus_auth_key for the same reason, with a warning. A malformed key (anything but
++  letters, digits, - and _, or not 16 to 128 characters) is refused with a warning, and URLhaus is skipped.
++- Any https://urlhaus.abuse.ch/downloads/... address in feed_urls is dropped when the configuration is read, with a
++  warning that says how to bring URLhaus back. Without a key, Scanistry uses Spamhaus DROP and Feodo Tracker, as
++  before, and "2 of 2 sources" is a clean refresh.
++- The shipped scanistry.conf no longer lists the URLhaus text address and has "urlhaus_auth_key": "". The postinst
++  migration removes the retired address from an existing scanistry.conf and adds the empty key, and prints how to
++  set it. It rewrites the file only when something changed, so running it again changes nothing.
++
++Downloads
++- The keyed export is a CSV with one row per URL (id, dateadded, url, url_status, ...). It has its own 64 MB ceiling
++  and a 300-second deadline. Every other feed keeps 8 MB and 120 seconds. Only the url column of rows marked
++  "online" is read. The urlhaus_link column (https://urlhaus.abuse.ch/url/N/) is never taken for a malware host.
++- A download that arrives as a ZIP archive is refused with a clear error rather than being parsed as text.
++- A source that fails keeps its last good copy for up to 7 days, as since 5.0-1.
++
++The Logs page
++- A feed that answers HTTP 404 or 410 is shown as "Threat list retired", and 401 or 403 as "Threat list refused the
++  download", with advice that fits: for the old URLhaus address, the Auth-Key steps; for the keyed export, check the
++  key; for any other list, change or remove it in feed_urls. Neither says to check network connectivity, because
++  retrying will not help. Timeouts, DNS errors and other failures keep the old "Threat list download failed" advice.
++  Lines already in the log from before the upgrade are explained the new way too.
++
++Help
++- The Threat Intelligence help names the default sources correctly and explains urlhaus_auth_key.
++
++Tests
++- New: tests/test_5025.py (no root needed): the retired addresses are dropped, the key adds the export and stays out
++  of every log line and state file (including an error that quotes the address), malformed keys, a pasted keyed
++  address, online and offline CSV rows, a refused key keeps the last good copy, and the Logs page wording for the
++  real 410 line, a 404, a 401 and a timeout. tests/test_feed_carry.py, check_broker.py, test_5017.py, test_5023.py and
++  test_5024.py still pass.
++
++Upgrading: sudo apt install ./scanistry_5.0-25_amd64.deb. Then, to keep URLhaus, add your Auth-Key as described above.
+diff -ruN orig/scanistry-5.0-24-source/usr/share/doc/scanistry/README.Debian src/scanistry-5.0-25-source/usr/share/doc/scanistry/README.Debian
+--- orig/scanistry-5.0-24-source/usr/share/doc/scanistry/README.Debian	2026-10-21 12:00:00.000000000 +0000
++++ src/scanistry-5.0-25-source/usr/share/doc/scanistry/README.Debian	2026-10-24 21:43:55.081894831 +0000
+@@ -61,6 +61,13 @@
+ and domain reputation. Scanistry does not fetch a URL merely to determine its
+ reputation. Review feed terms before enabling additional sources.
+ 
++URLhaus (malware download sites) needs a free abuse.ch Auth-Key since
++2026-10-23; its keyless addresses answer HTTP 410 Gone. Sign in at
++https://auth.abuse.ch/, generate an Auth-Key, set "urlhaus_auth_key" in
++/etc/scanistry/scanistry.conf and run: sudo systemctl restart scanistry
++Without a key, Spamhaus DROP and Feodo Tracker are used. The key is never
++logged or shown on the dashboard.
++
+ Scanistry contains no AI component. Up to 4.0.11-46 it shipped an optional local
+ Ollama analyst that wrote plain-English explanations beside incident
+ remediation; it never chose the actions, and all of it was removed in
+diff -ruN orig/scanistry-5.0-24-source/usr/share/doc/scanistry/README.md src/scanistry-5.0-25-source/usr/share/doc/scanistry/README.md
+--- orig/scanistry-5.0-24-source/usr/share/doc/scanistry/README.md	2026-10-21 12:00:00.000000000 +0000
++++ src/scanistry-5.0-25-source/usr/share/doc/scanistry/README.md	2026-10-24 21:43:55.081494827 +0000
+@@ -4,7 +4,13 @@
+ installs as the native Qt6 desktop build on Debian 12 and 13, Ubuntu 24.04 LTS, 26.04 LTS and 26.10,
+ Linux Mint 22, and LMDE 6 and 7 (amd64).
+ 
+-Release status (5.0-23): blocked domains. A domain name (an advert or tracker from a DNS-lookup alert) can be blocked for
++Release status (5.0-25): a small fix. URLhaus switched off its keyless downloads on 2026-10-23 (HTTP 410 Gone), so
++Scanistry drops the old address and downloads URLhaus again once you set "urlhaus_auth_key" to a free abuse.ch Auth-Key.
++The Logs page no longer tells you to check your network connection when a list has been retired (see CHANGELOG-5.0-25).
++
++5.0-24: a small fix. The debsecan report no longer lists fixes that are already installed as waiting (see CHANGELOG-5.0-24).
++
++5.0-23: blocked domains. A domain name (an advert or tracker from a DNS-lookup alert) can be blocked for
+ every program on this computer, in Scanistry's own section of /etc/hosts: "Fix it" on the alert, the new Blocked domains
+ card on Firewall & Blocks (both need sudo scanistryctl approve ID), sudo scanistryctl block-domain NAME, or block_domains
+ in scanistry.conf. Outbound alerts now give an exact ss filter, and a DNS lookup is explained as one (see CHANGELOG-5.0-23).
