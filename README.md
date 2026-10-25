@@ -1,16 +1,16 @@
 # Tcl and Other Files
 
-This repository contains a mixed collection of Eggdrop/Tcl scripts, security hardening files, Linux system validation scripts, and supporting documentation. These projects are designed for IRC bot automation, bot protection, local network monitoring, and security auditing workflows.
+This repository contains a mixed collection of Eggdrop/Tcl scripts, security hardening files, Linux system validation scripts, and supporting documentation. These projects are designed for IRC bot automation, system defense, and environment verification with a focus on Debian/Ubuntu-based systems.
 
 ## Repository Overview
 
 | Area | Purpose | Notes |
 | --- | --- | --- |
+| Archive packages | Source tarballs and Debian packages | Bundled release artifacts and package checks |
+| Documentation | Guides and install references | Includes docs for security and game content |
 | Eggdrop scripts | IRC bot automation and protection | Includes guard, restrict, spychan, and mafia scripts |
 | System hardening config | Security tuning and system lockdown | Scanistry configuration files and hardening profiles |
 | Validation scripts | Post-install or environment checks | Shell-based verification for Scanistry |
-| Documentation | Guides and install references | Includes docs for security and game content |
-| Archive packages | Source tarballs and Debian packages | Bundled release artifacts and package checks |
 
 ## File Inventory
 
@@ -20,22 +20,22 @@ This repository contains a mixed collection of Eggdrop/Tcl scripts, security har
 | --- | --- | --- |
 | `guard.tcl` | Tcl script | Eggdrop join monitor for watching channels, WHOIS enforcement, and ban handling. |
 | `mafia.tcl` | Tcl script | Mafia-style crime/RPG game engine for Eggdrop. |
-| `restrict.tcl` | Tcl script | Restriction script that turns on +R for managed channels after trusted kicks. |
-| `spychan.tcl` | Tcl script | Botnet relay and channel spy script for monitoring channel events across linked Eggdrop bots. |
 | `masterhelp.tcl` | Tcl script | Helper script that's used for help output in Eggdrop bot environments. |
 | `mem.tcl` | Tcl script | Utility / memory or monitor script for TCL-based bot usage. |
+| `restrict.tcl` | Tcl script | Restriction script that turns on +R for managed channels after trusted kicks. |
+| `spychan.tcl` | Tcl script | Botnet relay and channel spy script for monitoring channel events across linked Eggdrop bots. |
+| `sysinfo.tcl` | Tcl script | System information script for system information. |
 | `talkbot.tcl` | Tcl script | A talk bot or IRC interaction script. |
 | `talkbot_cost.tcl` | Tcl script | Cost-related variant of the talk bot logic. |
 | `whocom.tcl` | Tcl script | A who command and identity helper for IRC bot functions. |
-| `sysinfo.tcl` | Tcl script | System information script for system information. |
 
 ### Configuration and Data Files
 
 | File | Type | Description |
 | --- | --- | --- |
-| `Mafia.cfg` | Configuration | Settings file for the Mafia RPG bot game. |
 | `60-scanistry-hardening.conf` | System config | Hardening configuration for a security appliance or host lockdown policy. |
 | `99-hardening_1.conf` | System config | Additional hardening policy or override rules. |
+| `Mafia.cfg` | Configuration | Settings file for the Mafia RPG bot game. |
 | `mafia.sqlite3` | SQLite database | Stored data for the Mafia game state. |
 | `netbots-4.10-to-4.11.diff` | Patch | Diff between NetBots versions 4.10 and 4.11. |
 | `SHA256SUMS-1.0.36.txt` | Checksum file | Hash list for the 1.0.36 package set. |
@@ -45,12 +45,12 @@ This repository contains a mixed collection of Eggdrop/Tcl scripts, security har
 
 | File | Type | Description |
 | --- | --- | --- |
+| `liveworld-rpg-1.0.36-source.tar.gz` | Source archive | Source bundle for LiveWorld RPG 1.0.36. |
+| `liveworld-rpg_1.0.36_all.deb` | Debian package | Debian package for LiveWorld RPG application. |
+| `netbots4.11.zip` | Archive | NetBots package bundle/version archive. |
+| `scanistry-5.0-23-source.tar.gz` | Source archive | Source bundle for the Scanistry 5.0-23 release. |
 | `scanistry-vm-check.sh` | Bash script | Post-install validation script for Scanistry security package checks. |
 | `scanistry_5.0-23_amd64.deb` | Debian package | Scanistry package build for amd64 systems. |
-| `scanistry-5.0-23-source.tar.gz` | Source archive | Source bundle for the Scanistry 5.0-23 release. |
-| `liveworld-rpg_1.0.36_all.deb` | Debian package | Debian package for LiveWorld RPG application. |
-| `liveworld-rpg-1.0.36-source.tar.gz` | Source archive | Source bundle for LiveWorld RPG 1.0.36. |
-| `netbots4.11.zip` | Archive | NetBots package bundle/version archive. |
 
 ### Documentation Files
 
@@ -67,14 +67,14 @@ This repository contains a mixed collection of Eggdrop/Tcl scripts, security har
 | Script / Program | Role | Main Requirements |
 | --- | --- | --- |
 | `guard.tcl` | IRC channel and join monitoring | Eggdrop, Tcl |
-| `restrict.tcl` | Channel restriction automation | Eggdrop, Tcl |
-| `spychan.tcl` | Botnet relay and channel spy | Eggdrop, Tcl |
 | `mafia.tcl` | Mafia game engine | Eggdrop, Tcl, SQLite3 |
-| `scanistry-vm-check.sh` | Security validation | Bash, systemd, AppArmor, curl, ufw, apt |
-| `talkbot.tcl` | IRC bot/chat functionality | Eggdrop, Tcl |
-| `sysinfo.tcl` | System information lookup | Eggdrop, Tcl |
-| `whocom.tcl` | Who/identity lookup | Eggdrop, Tcl |
 | `mem.tcl` | Memory or monitoring utility | Eggdrop, Tcl |
+| `restrict.tcl` | Channel restriction automation | Eggdrop, Tcl |
+| `scanistry-vm-check.sh` | Security validation | Bash, systemd, AppArmor, curl, ufw, apt |
+| `spychan.tcl` | Botnet relay and channel spy | Eggdrop, Tcl |
+| `sysinfo.tcl` | System information lookup | Eggdrop, Tcl |
+| `talkbot.tcl` | IRC bot/chat functionality | Eggdrop, Tcl |
+| `whocom.tcl` | Who/identity lookup | Eggdrop, Tcl |
 
 ## Required Packages and Tools
 
@@ -82,33 +82,33 @@ The following packages are the main dependencies associated with the programs an
 
 | Package | Used By | Purpose |
 | --- | --- | --- |
-| `eggdrop` | `guard.tcl`, `restrict.tcl`, `spychan.tcl`, `mafia.tcl`, `talkbot.tcl`, `sysinfo.tcl`, `whocom.tcl`, `mem.tcl`, `masterhelp.tcl` | IRC bot runtime for Tcl-based scripts |
-| `tcl` | All `.tcl` scripts | Tcl interpreter used to run Eggdrop scripts |
-| `sqlite3` | `mafia.tcl`, `mafia.sqlite3` | SQLite database support for Mafia game data |
-| `bash` | `scanistry-vm-check.sh` | Shell environment used to run validation checks |
-| `python3` | `scanistry-vm-check.sh` | Embedded Python logic in the validation script |
-| `systemd` | `scanistry-vm-check.sh` | Service and system configuration checks |
-| `apparmor-utils` | `scanistry-vm-check.sh` | AppArmor profile validation and enforcement utilities |
-| `libcap2-bin` | `scanistry-vm-check.sh` | Capability handling and tool support |
-| `curl` | `scanistry-vm-check.sh` | HTTP/HTTPS checks for dashboard validation |
-| `ufw` | `scanistry-vm-check.sh` | Firewall checks and validation |
 | `aide` | `scanistry-vm-check.sh` | File integrity and system audit support |
-| `lynis` | `scanistry-vm-check.sh` | Security auditing and system hardening checks |
-| `rkhunter` | `scanistry-vm-check.sh` | Rootkit detection checks |
-| `clamdscan` | `scanistry-vm-check.sh` | ClamAV scanning support |
-| `suricata` | `scanistry-vm-check.sh` | Network intrusion detection checks |
-| `tcpdump` | `scanistry-vm-check.sh` | Packet capture and inspection |
-| `debsecan` | `scanistry-vm-check.sh` | Debian package security analysis |
+| `apparmor-utils` | `scanistry-vm-check.sh` | AppArmor profile validation and enforcement utilities |
 | `apt` / `apt-get` | `scanistry-vm-check.sh` | Package installation and dependency management |
+| `bash` | `scanistry-vm-check.sh` | Shell environment used to run validation checks |
+| `clamdscan` | `scanistry-vm-check.sh` | ClamAV scanning support |
+| `curl` | `scanistry-vm-check.sh` | HTTP/HTTPS checks for dashboard validation |
+| `debsecan` | `scanistry-vm-check.sh` | Debian package security analysis |
+| `eggdrop` | `guard.tcl`, `restrict.tcl`, `spychan.tcl`, `mafia.tcl`, `talkbot.tcl`, `sysinfo.tcl`, `whocom.tcl`, `mem.tcl`, `masterhelp.tcl` | IRC bot runtime for Tcl-based scripts |
+| `libcap2-bin` | `scanistry-vm-check.sh` | Capability handling and tool support |
+| `lynis` | `scanistry-vm-check.sh` | Security auditing and system hardening checks |
+| `python3` | `scanistry-vm-check.sh` | Embedded Python logic in the validation script |
+| `rkhunter` | `scanistry-vm-check.sh` | Rootkit detection checks |
+| `sqlite3` | `mafia.tcl`, `mafia.sqlite3` | SQLite database support for Mafia game data |
+| `suricata` | `scanistry-vm-check.sh` | Network intrusion detection checks |
+| `systemd` | `scanistry-vm-check.sh` | Service and system configuration checks |
+| `tcl` | All `.tcl` scripts | Tcl interpreter used to run Eggdrop scripts |
+| `tcpdump` | `scanistry-vm-check.sh` | Packet capture and inspection |
+| `ufw` | `scanistry-vm-check.sh` | Firewall checks and validation |
 
 ## Notes
 
 | Topic | Details |
 | --- | --- |
+| Documentation | Word documents likely explain installation, upgrades, and operational security guidance |
 | Intended environment | Linux-based systems with Eggdrop-compatible IRC bot hosting and optional security hardening tools |
 | Script compatibility | Tcl scripts are intended for Eggdrop installations and are not standalone command-line utilities by default |
 | Security tooling | Scanistry-related files appear to be for Debian/Ubuntu system hardening and validation work |
-| Documentation | Word documents likely explain installation, upgrades, and operational security guidance |
 
 ## Quick Start
 
@@ -120,4 +120,4 @@ The following packages are the main dependencies associated with the programs an
 
 ## Summary
 
-This repository is a practical collection of IRC bot features, a game framework, and Linux security validation files. The overall structure is consistent: Tcl-based automation for Eggdrop, external package artifacts for security tooling, and supporting documentation for operating and auditing those systems.
+This repository is a practical collection of IRC bot features, a game framework, and Linux security validation files. The overall structure is consistent: Tcl-based automation for Eggdrop, external package artifacts, and hardening/validation scripts for secure system operations.
