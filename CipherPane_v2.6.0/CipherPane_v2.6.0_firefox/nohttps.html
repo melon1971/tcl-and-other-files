@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>No HTTPS - CipherPane Security</title>
+  <link rel="stylesheet" href="blocked.css" />
+  <link rel="stylesheet" href="nohttps.css" />
+</head>
+<body>
+  <div class="card warn">
+    <h1>This site does not support HTTPS</h1>
+    <p>CipherPane tried the secure version of <b id="hostName">this site</b> and the connection failed.</p>
+    <p>Continuing over plain HTTP means anyone on the network path can read or change the page, including passwords you type. Only continue if the site has nothing private.</p>
+    <div class="btn-row">
+      <button id="backBtn" type="button">Go back</button>
+      <button id="onceBtn" type="button" class="alt">Continue over HTTP (this session)</button>
+      <button id="alwaysBtn" type="button" class="alt">Always allow HTTP for this site</button>
+    </div>
+    <p class="hint" id="msg"></p>
+  </div>
+  <script src="nohttps.js"></script>
+</body>
+</html>
